@@ -1,0 +1,29 @@
+# WeChat Studio 配置（敏感值使用环境变量，不含明文密钥）
+# 必填环境变量：
+#   WECHAT_APPID       - 微信公众号 appid
+#   WECHAT_SECRET      - 微信公众号 secret
+#   OPENAI_API_KEY     - OpenAI API Key（用于 gpt-image-2）
+#   DOUBAO_API_KEY     - 豆包 API Key（即梦/火山引擎）
+# 可选：
+#   DASHSCOPE_API_KEY  - 阿里通义万相
+#   JIMENG_ACCESS_KEY  - 即梦 access_key_id
+#   JIMENG_SECRET_KEY  - 即梦 secret_access_key
+
+wechat:
+  appid: "${WECHAT_APPID}"
+  secret: "${WECHAT_SECRET}"
+  author: ""  # 默认署名（可选）
+
+# AI 图片生成（多 provider 自动 fallback）
+image:
+  providers:
+    - provider: "openai"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-image-2"
+      base_url: "https://api.openai.com/v1"
+    - provider: "doubao"
+      api_key: "${DOUBAO_API_KEY}"
+      model: "doubao-seedream-4-5-251128"
+
+# 默认排版主题
+theme: "terracotta"

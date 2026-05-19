@@ -1,7 +1,5 @@
-# Credentials
-config.yaml
-
-# User data (generated at runtime, not tracked)
+# Config with env vars (no secrets in git)
+# config.yaml is committed — sensitive values use ${VAR:-default} syntax
 style.yaml
 history.yaml
 playbook.md

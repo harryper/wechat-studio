@@ -30,12 +30,30 @@ CONFIG_PATHS = [
 ]
 
 
+import os, re
+
+def _expand_env(value):
+    """Recursively expand ${VAR} and $VAR patterns in config values."""
+    if isinstance(value, str):
+        # Support ${VAR} and ${VAR:-default} syntax
+        pattern = r'\$\{([^}:]+)(?::-(.*?))?\}'
+        def replacer(m):
+            var, default = m.group(1), m.group(2)
+            return os.environ.get(var, os.environ.get(var.upper(), default if default is not None else m.group(0)))
+        return re.sub(pattern, replacer, value)
+    elif isinstance(value, dict):
+        return {k: _expand_env(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_expand_env(v) for v in value]
+    return value
+
 def load_config() -> dict:
-    """Load config from first found config.yaml."""
+    """Load config from first found config.yaml with environment variable expansion."""
     for p in CONFIG_PATHS:
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
+                cfg = yaml.safe_load(f) or {}
+            return _expand_env(cfg)
     return {}
 
 
