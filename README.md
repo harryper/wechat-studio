@@ -124,14 +124,14 @@ python3 toolkit/cli.py themes
 **Claude Code**：
 
 ```bash
-git clone --depth 1 https://github.com/oaker-io/wechat-studio.git ~/.claude/skills/wechat-studio
+git clone --depth 1 https://github.com/harryper/wechat-studio.git ~/.claude/skills/wechat-studio
 cd ~/.claude/skills/wechat-studio && pip install -r requirements.txt
 ```
 
 **OpenClaw**：
 
 ```bash
-git clone --depth 1 https://github.com/oaker-io/wechat-studio.git ~/.openclaw/skills/wechat-studio
+git clone --depth 1 https://github.com/harryper/wechat-studio.git ~/.openclaw/skills/wechat-studio
 cd ~/.openclaw/skills/wechat-studio && pip install -r requirements.txt
 ```
 
