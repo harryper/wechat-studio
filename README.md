@@ -66,15 +66,25 @@ WeChat Studio 的目标不是"骗过 AI 检测"，而是**写出值得读的文�
 
 ## 排版引擎
 
-### 16 个主题
+### 38 套主题（含 xiaohu 引擎）
 
 ```bash
-# 浏览器内预览所有主题（并排对比 + 一键复制）
-python3 toolkit/cli.py gallery
+# 浏览器内预览全部 38 套主题（并排对比）
+python3 toolkit/cli.py gallery article.md --no-open -o theme-gallery.html
 
-# 列出主题名称
+# 列出全部主题
 python3 toolkit/cli.py themes
 ```
+
+**主题来源**：
+- **WeChat Studio 原生主题**（5 套）：`professional-clean`、`terracotta`、`sspai`、`coffee-house`、`sunset-amber` 等
+- **xiaohu-wechat-format 主题**（33 套）：由 `xiaohu` 引擎驱动，支持完整容器语法和暗黑模式
+
+**主题引擎路由**：
+| 主题类型 | 引擎 | 支持特性 |
+|---------|------|---------|
+| xiaohu 主题（33 套） | xiaohu 引擎 | 完整容器语法、暗黑模式属性注入 |
+| 其他原生主题 | 基础降级引擎 | blockquote / table / code 样式保留 |
 
 | 类别 | 主题 |
 |------|------|
@@ -83,6 +93,7 @@ python3 toolkit/cli.py themes
 | 文艺 | `warm-editorial`、`sspai`、`ink`、`elegant-rose` |
 | 商务 | `bold-navy`、`minimal-gold`、`bold-green` |
 | 风格 | `bauhaus`、`focus-red`、`midnight` |
+| xiaohu 系列 | `minimal-blue/navy/red/gold/gray`、`elegant-blue/green/navy/rose`、`bold-blue/green/navy`、`ocean-card`、`fresh-card`、`lavender-dream` 等 33 套 |
 
 所有主题均支持微信暗黑模式。
 
@@ -135,15 +146,24 @@ git clone --depth 1 https://github.com/harryper/wechat-studio.git ~/.openclaw/sk
 cd ~/.openclaw/skills/wechat-studio && pip install -r requirements.txt
 ```
 
-安装后 skill 会在每次运行时自动检查新版本。有更新时说"更新"即可升级。
+安装后 skill 会在每次运行时自动检查新版本。有更新时说「更新」即可升级。
 
-### 配置（可选）
+### 配置
 
 ```bash
-cp config.example.yaml config.yaml
+# config.yaml 已包含在仓库中，敏感值通过环境变量注入
+cp config.example.yaml config.yaml  # （可选，config.yaml 已有模板）
 ```
 
-填入微信公众号 `appid`/`secret`（推送需要）和图片 API key（生图需要）。不配也能用——自动降级为本地 HTML + 输出图片提示词。
+**必填环境变量**：
+```bash
+export WECHAT_APPID="wx_your_appid"
+export WECHAT_SECRET="your_appsecret"
+export OPENAI_API_KEY="sk-..."          # gpt-image-2 生图用
+export DOUBAO_API_KEY="your_volc_key"  # 豆包/即梦 fallback 生图用
+```
+
+`config.yaml` 中使用 `${VAR}` 或 `${VAR:-default}` 语法引用环境变量，启动时自动展开。不配也能跑——自动降级为本地 HTML 预览 + 图片提示词输出。
 
 ## 快速开始
 
@@ -195,7 +215,7 @@ wechat-studio/
 │   ├── publisher.py            # 微信草稿箱 API + 小绿书图片帖
 │   ├── wechat_api.py           # access_token / 图片上传
 │   ├── image_gen.py            # AI 图片生成（9 provider，自动 fallback）
-│   └── themes/                 # 16+ 排版主题（含暗黑模式，可从文章学习新增）
+│   └── themes/                 # 38 套排版主题（含 xiaohu 引擎，可从文章学习新增）
 │
 ├── personas/                 # 5 套写作人格预设（含朱雀实测数据）
 │
@@ -236,7 +256,7 @@ Step 5  SEO 优化 → 质量验证
   ↓
 Step 6  视觉 AI（封面 + 内文配图）
   ↓
-Step 7  预检 + 排版 + 发布（16 主题 + 微信兼容修复）
+Step 7  预检 + 排版 + 发布（38 套主题 + 微信兼容修复）
   ↓
 Step 8  写入历史 → 回复用户（含编辑建议 + 飞轮提示）
 ```
