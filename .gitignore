@@ -1,5 +1,6 @@
 # Config with env vars (no secrets in git)
 # config.yaml is committed — sensitive values use ${VAR:-default} syntax
+.env
 style.yaml
 history.yaml
 playbook.md

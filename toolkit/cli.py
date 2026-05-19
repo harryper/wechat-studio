@@ -32,6 +32,20 @@ CONFIG_PATHS = [
 
 import os, re
 
+def _load_env_files() -> None:
+    """Load local uncommitted env files so cron/subagents work without sourcing ~/.bashrc."""
+    for env_path in [Path(__file__).parent.parent / ".env", Path.cwd() / ".env"]:
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
 def _expand_env(value):
     """Recursively expand ${VAR} and $VAR patterns in config values."""
     if isinstance(value, str):
@@ -49,6 +63,7 @@ def _expand_env(value):
 
 def load_config() -> dict:
     """Load config from first found config.yaml with environment variable expansion."""
+    _load_env_files()
     for p in CONFIG_PATHS:
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:
