@@ -1,0 +1,52 @@
+name: 醒目·藏青
+description: '醒目藏青 #1F4F8A 填充标题+色块h3，适合新闻/公告/重点内容'
+colors:
+  primary: '#2c2c2c'
+  secondary: '#1F4F8A'
+  text: '#2c2c2c'
+  text_light: rgba(31,79,138,0.05)
+  background: '#ffffff'
+  code_bg: '#282c34'
+  code_color: '#e6e6e6'
+  quote_border: '#1F4F8A'
+  quote_bg: rgba(31,79,138,0.05)
+  border_radius: 6px
+base_css: "  body {\n    font-family: -apple-system, \"PingFang SC\", \"Helvetica\
+  \ Neue\", sans-serif;\n    font-size: 15px;\n    line-height: 1.75;\n    color:\
+  \ #222222;\n    background: #ffffff;\n    max-width: 720px;\n    margin: 0 auto;\n\
+  \    padding: 16px;\n    word-wrap: break-word;\n  }\n  h1 {\n    font-size: 26px;\n\
+  \    font-weight: 700;\n    color: #ffffff;\n    text-align: center;\n    letter-spacing:\
+  \ 0;\n    line-height: 1.4;\n    background: #1F4F8A;\n    border-radius: 16px;\n\
+  \    padding: 16px 24px;\n    margin-top: 0;\n    margin-bottom: 28px;\n    box-shadow:\
+  \ 0 4px 12px rgba(31,79,138,0.25);\n  }\n  h2 {\n    font-size: 22px;\n    font-weight:\
+  \ 600;\n    color: #1F4F8A;\n    border-left: 4px solid #1F4F8A;\n    padding: 0\
+  \ 0 8px 12px;\n    margin-top: 36px;\n    margin-bottom: 24px;\n    line-height:\
+  \ 1.4;\n  }\n  h3 {\n    font-size: 20px;\n    font-weight: 600;\n    color: #1F4F8A;\n\
+  \    border-left: 3px solid #1F4F8A;\n    padding: 6px 12px;\n    margin-top: 28px;\n\
+  \    margin-bottom: 20px;\n    line-height: 1.4;\n  }\n  p {\n    font-size: 15px;\n\
+  \    color: #2c2c2c;\n    line-height: 1.75;\n    margin-top: 0;\n    margin-bottom:\
+  \ 20px;\n    letter-spacing: 0.02em;\n    text-align: left;\n  }\n  blockquote {\n\
+  \    border-left: 3px solid #1F4F8A;\n    background: linear-gradient(135deg, rgba(31,79,138,0.05),\
+  \ rgba(31,79,138,0.02));\n    padding: 16px 8px 1px 8px;\n    margin-top: 4px;\n\
+  \    margin-bottom: 20px;\n    border-radius: 0 8px 8px 0;\n    font-size: 15px;\n\
+  \    color: #555555;\n    line-height: 1.8;\n  }\n\n  blockquote p {\n    margin:\
+  \ 8px 0;\n    color: #555555;\n  }\n  strong {\n    font-weight: 600;\n    color:\
+  \ #1F4F8A;\n  }\n  em {\n    font-style: italic;\n    color: #444444;\n  }\n  a\
+  \ {\n    color: #1F4F8A;\n    text-decoration: none;\n  }\n  code {\n    font-family:\
+  \ \"SF Mono\", Menlo, Consolas, monospace;\n    font-size: 13px;\n    background:\
+  \ #282c34;\n    color: #e6e6e6;\n    padding: 2px 6px;\n    border-radius: 4px;\n\
+  \  }\n\n  pre {\n    background: #282c34;\n    color: #e6e6e6;\n    padding: 16px;\n\
+  \    border-radius: 6px;\n    overflow-x: auto;\n    margin: 16px 0;\n    line-height:\
+  \ 1.6;\n  }\n\n  pre code {\n    background: none;\n    padding: 0;\n    border-radius:\
+  \ 0;\n  }\n  hr {\n    border: none;\n    border-top: 1px solid #1F4F8A;\n    margin:\
+  \ 28px auto;\n    width: 60%;\n  }\n  img {\n    max-width: 100%;\n    height: auto;\n\
+  \    display: block;\n    margin: 24px auto;\n    border-radius: 4px;\n  }"
+darkmode:
+  background: '#1c1c1e'
+  text: '#e5e5e7'
+  text_light: '#888888'
+  primary: '#1F4F8A'
+  code_bg: '#2a2a2a'
+  code_color: '#e6e6e6'
+  quote_bg: '#262626'
+  quote_border: '#1F4F8A'

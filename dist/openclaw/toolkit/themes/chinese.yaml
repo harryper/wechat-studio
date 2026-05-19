@@ -1,0 +1,52 @@
+name: 中国风
+description: '中国红 #8B1E22 强调，楷体标题，宣纸色背景，古典文化感，适合传统文化、国潮、中式美学内容'
+colors:
+  primary: '#333333'
+  secondary: '#8B1E22'
+  text: '#333333'
+  text_light: rgba(139,30,34,0.03)
+  background: '#ffffff'
+  code_bg: '#faf8f5'
+  code_color: '#e6e6e6'
+  quote_border: '#8B1E22'
+  quote_bg: rgba(139,30,34,0.03)
+  border_radius: 6px
+base_css: "  body {\n    font-family: -apple-system, \"PingFang SC\", \"Helvetica\
+  \ Neue\", sans-serif;\n    font-size: 15px;\n    line-height: 1.75;\n    color:\
+  \ #222222;\n    background: #ffffff;\n    max-width: 720px;\n    margin: 0 auto;\n\
+  \    padding: 16px;\n    word-wrap: break-word;\n  }\n  h1 {\n    font-size: 22px;\n\
+  \    font-weight: bold;\n    color: #8B1E22;\n    text-align: center;\n    letter-spacing:\
+  \ 0.1em;\n    line-height: 1.2;\n    background: #8B1E22;\n    border-radius: 8px;\n\
+  \    padding: 12px 24px;\n    margin-top: 24px;\n    margin-bottom: 24px;\n  }\n\
+  \  h2 {\n    font-size: 20px;\n    font-weight: bold;\n    color: #8B1E22;\n   \
+  \ border-left: 4px solid #8B1E22;\n    padding: 0 0 8px 12px;\n    margin-top: 32px;\n\
+  \    margin-bottom: 12px;\n    line-height: 1.2;\n    border-bottom: 1px dashed\
+  \ rgba(139,30,34,0.4);\n  }\n  h3 {\n    font-size: 18px;\n    font-weight: 600;\n\
+  \    color: #8B1E22;\n    border-left: 3px solid #8B1E22;\n    padding: 0 0 6px\
+  \ 12px;\n    margin-top: 32px;\n    margin-bottom: 12px;\n    line-height: 1.6;\n\
+  \  }\n  p {\n    font-size: 15px;\n    color: #333333;\n    line-height: 2;\n  \
+  \  margin-top: 0;\n    margin-bottom: 19px;\n    letter-spacing: 0.5px;\n    text-align:\
+  \ left;\n  }\n  blockquote {\n    border-left: 4px solid #8B1E22;\n    background:\
+  \ rgba(139,30,34,0.03);\n    padding: 8px 16px;\n    margin-top: 19px;\n    margin-bottom:\
+  \ 19px;\n    border-radius: 0;\n    font-size: 15px;\n    color: #666666;\n    line-height:\
+  \ 2;\n  }\n\n  blockquote p {\n    margin: 8px 0;\n    color: #666666;\n  }\n  strong\
+  \ {\n    font-weight: bold;\n    color: #8B1E22;\n  }\n  em {\n    font-style: italic;\n\
+  \    color: #555555;\n  }\n  a {\n    color: #8B1E22;\n    text-decoration: none;\n\
+  \  }\n  code {\n    font-family: \"SF Mono\", Menlo, Consolas, monospace;\n    font-size:\
+  \ 13px;\n    background: #faf8f5;\n    color: #e6e6e6;\n    padding: 2px 6px;\n\
+  \    border-radius: 4px;\n  }\n\n  pre {\n    background: #faf8f5;\n    color: #e6e6e6;\n\
+  \    padding: 16px;\n    border-radius: 6px;\n    overflow-x: auto;\n    margin:\
+  \ 16px 0;\n    line-height: 1.6;\n  }\n\n  pre code {\n    background: none;\n \
+  \   padding: 0;\n    border-radius: 0;\n  }\n  hr {\n    border: none;\n    border-top:\
+  \ 1px solid #8B1E22;\n    margin: 28px auto;\n    width: 60%;\n  }\n  img {\n  \
+  \  max-width: 100%;\n    height: auto;\n    display: block;\n    margin: 24px auto;\n\
+  \    border-radius: 4px;\n  }"
+darkmode:
+  background: '#1c1c1e'
+  text: '#e5e5e7'
+  text_light: '#888888'
+  primary: '#8B1E22'
+  code_bg: '#2a2a2a'
+  code_color: '#e6e6e6'
+  quote_bg: '#262626'
+  quote_border: '#8B1E22'

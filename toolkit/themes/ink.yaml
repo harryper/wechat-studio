@@ -1,0 +1,51 @@
+name: 墨韵
+description: '纯黑 #000000 强调，Georgia 衬线体，极简黑白灰，适合深度长文、文学评论、严肃写作'
+colors:
+  primary: '#111111'
+  secondary: '#000000'
+  text: '#111111'
+  text_light: '#fafafa'
+  background: '#ffffff'
+  code_bg: '#f5f5f5'
+  code_color: '#e6e6e6'
+  quote_border: '#000000'
+  quote_bg: '#fafafa'
+  border_radius: 6px
+base_css: "  body {\n    font-family: -apple-system, \"PingFang SC\", \"Helvetica\
+  \ Neue\", sans-serif;\n    font-size: 15px;\n    line-height: 1.75;\n    color:\
+  \ #222222;\n    background: #ffffff;\n    max-width: 720px;\n    margin: 0 auto;\n\
+  \    padding: 16px;\n    word-wrap: break-word;\n  }\n  h1 {\n    font-size: 29px;\n\
+  \    font-weight: 700;\n    color: #000000;\n    text-align: center;\n    letter-spacing:\
+  \ -0.02em;\n    line-height: 1.3;\n    background: #000000;\n    border-radius:\
+  \ 8px;\n    padding: 0 0 10px;\n    margin-top: 36px;\n    margin-bottom: 18px;\n\
+  \  }\n  h2 {\n    font-size: 22px;\n    font-weight: 700;\n    color: #111111;\n\
+  \    border-left: 3px solid #000000;\n    padding: 0 0 8px 12px;\n    margin-top:\
+  \ 34px;\n    margin-bottom: 18px;\n    line-height: 1.45;\n  }\n  h3 {\n    font-size:\
+  \ 20px;\n    font-weight: 600;\n    color: #222222;\n    border-left: 3px solid\
+  \ #000000;\n    padding: 0 0 6px 12px;\n    margin-top: 28px;\n    margin-bottom:\
+  \ 14px;\n    line-height: 1.45;\n  }\n  p {\n    font-size: 15px;\n    color: #111111;\n\
+  \    line-height: 1.8;\n    margin-top: 0;\n    margin-bottom: 20px;\n    letter-spacing:\
+  \ 0.5px;\n    text-align: left;\n  }\n  blockquote {\n    border-left: 3px solid\
+  \ #000000;\n    background: #fafafa;\n    padding: 16px 18px;\n    margin-top: 24px;\n\
+  \    margin-bottom: 24px;\n    border-radius: 0;\n    font-size: 16px;\n    color:\
+  \ #333333;\n    line-height: 1.8;\n  }\n\n  blockquote p {\n    margin: 8px 0;\n\
+  \    color: #333333;\n  }\n  strong {\n    font-weight: 700;\n    color: #000000;\n\
+  \  }\n  em {\n    font-style: italic;\n    color: #555555;\n  }\n  a {\n    color:\
+  \ #000000;\n    text-decoration: underline;\n  }\n  code {\n    font-family: \"\
+  SF Mono\", Menlo, Consolas, monospace;\n    font-size: 13px;\n    background: #f5f5f5;\n\
+  \    color: #e6e6e6;\n    padding: 2px 6px;\n    border-radius: 4px;\n  }\n\n  pre\
+  \ {\n    background: #f5f5f5;\n    color: #e6e6e6;\n    padding: 16px;\n    border-radius:\
+  \ 6px;\n    overflow-x: auto;\n    margin: 16px 0;\n    line-height: 1.6;\n  }\n\
+  \n  pre code {\n    background: none;\n    padding: 0;\n    border-radius: 0;\n\
+  \  }\n  hr {\n    border: none;\n    border-top: 1px solid #000000;\n    margin:\
+  \ 28px auto;\n    width: 60%;\n  }\n  img {\n    max-width: 100%;\n    height: auto;\n\
+  \    display: block;\n    margin: 24px auto;\n    border-radius: 4px;\n  }"
+darkmode:
+  background: '#1c1c1e'
+  text: '#e5e5e7'
+  text_light: '#888888'
+  primary: '#000000'
+  code_bg: '#2a2a2a'
+  code_color: '#e6e6e6'
+  quote_bg: '#262626'
+  quote_border: '#000000'

@@ -1,0 +1,54 @@
+name: 包豪斯
+description: '红蓝黄三原色 #E30613/#004D9F/#F5A623，粗黑边框，几何构成主义风格，适合设计师、创意类内容'
+colors:
+  primary: '#1a1a1a'
+  secondary: '#E30613'
+  text: '#1a1a1a'
+  text_light: '#fff4d6'
+  background: '#ffffff'
+  code_bg: '#f0f0f0'
+  code_color: '#e6e6e6'
+  quote_border: '#E30613'
+  quote_bg: '#fff4d6'
+  border_radius: 6px
+base_css: "  body {\n    font-family: -apple-system, \"PingFang SC\", \"Helvetica\
+  \ Neue\", sans-serif;\n    font-size: 15px;\n    line-height: 1.75;\n    color:\
+  \ #222222;\n    background: #ffffff;\n    max-width: 720px;\n    margin: 0 auto;\n\
+  \    padding: 16px;\n    word-wrap: break-word;\n  }\n  h1 {\n    font-size: 31px;\n\
+  \    font-weight: 900;\n    color: #ffffff;\n    text-align: center;\n    letter-spacing:\
+  \ -0.02em;\n    line-height: 1.16;\n    background: linear-gradient(90deg, #E30613\
+  \ 0%, #E30613 64%, #004D9F 64%, #004D9F 86%, #F5A623 86%, #F5A623 100%);\n    border-radius:\
+  \ 8px;\n    padding: 10px 14px 9px;\n    margin-top: 36px;\n    margin-bottom: 18px;\n\
+  \    box-shadow: 6px 6px 0 #1a1a1a;\n  }\n  h2 {\n    font-size: 22px;\n    font-weight:\
+  \ 800;\n    color: #1a1a1a;\n    border-left: 10px solid #004D9F;\n    padding:\
+  \ 8px 16px;\n    margin-top: 34px;\n    margin-bottom: 18px;\n    line-height: 1.35;\n\
+  \    border-bottom: 3px solid #1a1a1a;\n  }\n  h3 {\n    font-size: 20px;\n    font-weight:\
+  \ 700;\n    color: #1a1a1a;\n    border-left: 3px solid #E30613;\n    padding: 6px\
+  \ 12px;\n    margin-top: 28px;\n    margin-bottom: 14px;\n    line-height: 1.45;\n\
+  \  }\n  p {\n    font-size: 15px;\n    color: #1a1a1a;\n    line-height: 1.65;\n\
+  \    margin-top: 0;\n    margin-bottom: 18px;\n    letter-spacing: 0.5px;\n    text-align:\
+  \ left;\n  }\n  blockquote {\n    border-left: 6px solid #F5A623;\n    background:\
+  \ linear-gradient(135deg, #fff4d6 0%, #fff8ea 100%);\n    padding: 16px 20px;\n\
+  \    margin-top: 24px;\n    margin-bottom: 24px;\n    border-radius: 0;\n    font-size:\
+  \ 16px;\n    color: #333333;\n    line-height: 1.65;\n  }\n\n  blockquote p {\n\
+  \    margin: 8px 0;\n    color: #333333;\n  }\n  strong {\n    font-weight: 900;\n\
+  \    color: #ffffff;\n  }\n  em {\n    font-style: italic;\n    color: #555555;\n\
+  \  }\n  a {\n    color: #004D9F;\n    text-decoration: none;\n  }\n  code {\n  \
+  \  font-family: \"SF Mono\", Menlo, Consolas, monospace;\n    font-size: 13px;\n\
+  \    background: #f0f0f0;\n    color: #e6e6e6;\n    padding: 2px 6px;\n    border-radius:\
+  \ 4px;\n  }\n\n  pre {\n    background: #f0f0f0;\n    color: #e6e6e6;\n    padding:\
+  \ 16px;\n    border-radius: 6px;\n    overflow-x: auto;\n    margin: 16px 0;\n \
+  \   line-height: 1.6;\n  }\n\n  pre code {\n    background: none;\n    padding:\
+  \ 0;\n    border-radius: 0;\n  }\n  hr {\n    border: none;\n    border-top: 1px\
+  \ solid #E30613;\n    margin: 28px auto;\n    width: 60%;\n  }\n  img {\n    max-width:\
+  \ 100%;\n    height: auto;\n    display: block;\n    margin: 24px auto;\n    border-radius:\
+  \ 4px;\n  }"
+darkmode:
+  background: '#1c1c1e'
+  text: '#e5e5e7'
+  text_light: '#888888'
+  primary: '#E30613'
+  code_bg: '#2a2a2a'
+  code_color: '#e6e6e6'
+  quote_bg: '#262626'
+  quote_border: '#E30613'
