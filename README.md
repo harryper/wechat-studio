@@ -35,13 +35,12 @@ cp config.example.yaml config.yaml
 Step 1  确定客户 → 读取 clients/{name}/style.yaml
   │
   ▼
-Step 2  热点抓取 → POST `https://api.yucoder.cn/api/hot/list` 聚合热榜（知乎/微博/虎扑/贴吧/B站/抖音），失败则补调用，最多1次
+Step 2  热点抓取 + 历史去重 + SEO评分
+  │       → POST `https://api.yucoder.cn/api/hot/list` 聚合热榜（知乎/微博/虎扑/贴吧/B站/抖音），失败则补调用最多1次
+  │       → 读取 history.yaml 避开近7天已写选题
   │
   ▼
-Step 2.5  历史去重 + SEO 评分 → 避开近7天已写选题
-  │
-  ▼
-Step 3  选题生成 → 综合评分最高的题自动进入写作
+Step 3  选题 → 综合评分最高的题自动进入写作
   │
   ▼
 Step 4  文章写作 → H1标题 + 1500-2500字 + 框架大纲
