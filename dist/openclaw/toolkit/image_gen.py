@@ -31,6 +31,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -197,6 +198,18 @@ class DoubaoProvider(ImageProvider):
         self._api_key = api_key
         self._model = model
         self._base_url = base_url
+
+    def resolve_size(self, preset: str) -> str:
+        if preset in SIZE_PRESETS:
+            return SIZE_PRESETS[preset].get(self.provider_key, "2560x1440")
+        if "x" in preset:
+            try:
+                w, h = (int(x) for x in preset.split("x", 1))
+                if w * h < 3686400:
+                    return "2560x1440" if w >= h else "1440x2560"
+            except ValueError:
+                pass
+        return preset
 
     def generate(self, prompt: str, size: str) -> bytes:
         resp = requests.post(
@@ -748,6 +761,18 @@ def generate_image(
                 file=sys.stderr,
             )
             continue
+
+        if "x" in size and resolved_size != size:
+            from io import BytesIO
+            from PIL import Image
+
+            target_w, target_h = (int(x) for x in size.split("x", 1))
+            img = Image.open(BytesIO(raw_bytes))
+            if img.size != (target_w, target_h):
+                img = img.resize((target_w, target_h), Image.LANCZOS)
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                raw_bytes = buf.getvalue()
 
         # Compress if over 5MB (WeChat upload limit)
         if len(raw_bytes) > MAX_FILE_SIZE:

@@ -163,9 +163,9 @@ python3 {baseDir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5
 
 生成封面 3 组创意（直觉冲击/氛围渲染/信息图表）+ 内文配图提示词。
 
-对 `openai/gpt-image-2`，不要只写“纪实摄影、抓拍、轻微不完美”这类松散描述；应优先按 `references/visual-prompts.md` 的 **Prompt as Code** 思路组织提示词，把故事瞬间、主体动作、环境锚点、镜头参数、光线与负面约束拆开写清。
+对 `openai/gpt-image-2` 或 `minimax/image-01`，不要只写“纪实摄影、抓拍、轻微不完美”这类松散描述；应优先按 `references/visual-prompts.md` 的 **Prompt as Code** 思路组织提示词，把故事瞬间、主体动作、环境锚点、镜头参数、光线与负面约束拆开写清。
 
-**硬性 guardrail：** 如果某条准备送去 `image_generate(model="openai/gpt-image-2")` 的提示词，缺少以下任意 4 项核心字段中的任意一项，就不要直接生成，先重写提示词再调用：
+**硬性 guardrail：** 如果某条准备送去 `image_generate(model="openai/gpt-image-2")` 或 `image_generate(model="minimax/image-01")` 的提示词，缺少以下任意 4 项核心字段中的任意一项，就不要直接生成，先重写提示词再调用：
 - `Intent`
 - `Story moment`
 - `Environment anchors`
@@ -180,27 +180,37 @@ python3 {baseDir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5
 
 #### 6b. 自动生图
 
-优先使用 `image_generate` 工具，并明确指定 **`model: "openai/gpt-image-2"`** 生成封面和内文图片。
-把这条路线视为 **Codex / OpenAI 生图主链路**。如果用户明确要求“用 codex 生成图片”，默认就按这条路线执行。
+优先使用 `image_generate` 工具生成封面和内文图片。
+
+**竹旅快车道（2026-05-22 更新）：**
+- 对 `zhulv`，日更自动任务默认使用 **`model: "minimax/image-01"`** 生成封面和内文图片，作为快速主链路。
+- MiniMax 只支持比例控制，不支持精确 `1536x1024` size；调用时使用 **`aspectRatio="3:2"`**、`outputFormat="png"`，不要传 `size`。
+- MiniMax 产物落地后必须统一后处理/裁切/缩放为 **1536x1024 PNG**，再复制到 `output/zhulv/` 并替换 Markdown 图片路径。
+- `openai/gpt-image-2` 保留为高质量兜底：MiniMax 不可用、连续失败、格式/尺寸/画面质量不合格、有明显可见文字污染时，再切 OpenAI。
+- 若切到 OpenAI，调用参数仍使用 `size="1536x1024"`、`quality="low"`、`outputFormat="png"`，不要传 `aspectRatio`。
+- 如果用户明确要求“用 codex / OpenAI / gpt-image-2 生成图片”，默认按 `openai/gpt-image-2` 执行。
 
 **竹旅强制路由校验（2026-05-14 事故后新增）：**
 - 对 `zhulv`，不得在未说明原因的情况下走 `toolkit/image_gen.py --provider doubao` 或任何旧降级链路。
 - 生成后必须用 `file output/zhulv/<date>-*.png` 校验实际文件类型。
-- 正常 `openai/gpt-image-2` 主链路产物应为 **PNG image data, 1536 x 1024**。
-- 如果出现“扩展名 `.png` 但实际是 JPEG/JFIF”、尺寸明显不是 1536x1024，或文件体积/格式像旧链路产物，视为配图失败；必须立刻用 `image_generate(model="openai/gpt-image-2")` 重出，不得推草稿箱。
-- 若确实因为 OpenAI 连续失败被迫降级，必须在最终回复/日志中明确写出：降级原因、失败次数、使用的 provider；不能让用户误以为仍是 GPT-Image-2。
+- 正常 `zhulv` 日更产物应为 **PNG image data, 1536 x 1024**；无论 MiniMax 原始输出尺寸如何，发布前都必须归一化到该尺寸。
+- 如果出现“扩展名 `.png` 但实际是 JPEG/JFIF”、尺寸明显不是 1536x1024，或文件体积/格式像旧链路产物，视为配图失败；必须重新后处理或切到 `image_generate(model="openai/gpt-image-2")` 重出，不得推草稿箱。
+- 若确实因为 MiniMax 失败切到 OpenAI，或 OpenAI 再失败切到 toolkit provider，必须在最终回复/日志中明确写出：降级原因、失败次数、使用的 provider；不能让用户误以为仍是默认主链路。
 
 仅当以下任一情况出现时，才降级到 `toolkit/image_gen.py`：
 - `image_generate` 工具当前不可用
-- `openai/gpt-image-2` 连续失败
+- `minimax/image-01` 和 `openai/gpt-image-2` 连续失败
 - 用户明确要求改回豆包或其他 provider
 
 注意：`image_generate` 工具将图片写入 `~/.openclaw/media/tool-image-generation/`，
 不是 `{baseDir}/output/{client}/`，需要在生成后复制过去）。
 
 **默认参数建议：**
-- 封面：`model="openai/gpt-image-2"`，`size="1536x1024"`，`quality="high"`
-- 内文图：`model="openai/gpt-image-2"`，`size="1536x1024"`，`quality="medium"`
+- `zhulv` 日更封面/内文图：`model="minimax/image-01"`，`aspectRatio="3:2"`，`outputFormat="png"`，`timeoutMs=180000`
+- MiniMax 输出后：优先用 `python3 {baseDir}/toolkit/normalize_image.py <src> <dst> --size 1536x1024` 居中裁切/缩放到 `1536x1024`，保存为 PNG。
+- OpenAI 兜底封面/内文图：`model="openai/gpt-image-2"`，`size="1536x1024"`，`quality="low"`，`outputFormat="png"`。
+- 输出格式固定为 PNG；MiniMax 不传 `size`，OpenAI 不传 `aspectRatio`，两者都不要传 `outputCompression`。
+- 不要在未验证前用 `count=4` 合并生成。封面单独生成；内文图 2-3 张优先并发生成，但每张都用独立调用/独立结果保存。
 - 明确约束：`no visible text`、`no watermark`
 - 画面倾向：更亮、更饱和、纪实摄影、抓拍感、轻微不完美构图，降低 AI 味
 - 写法倾向：优先使用 **具体场景 + 具体动作 + 具体镜头 + 具体材质瑕疵**，而不是大段抽象风格词
@@ -244,7 +254,7 @@ python3 {baseDir}/toolkit/fix_image_paths.py \
   "${DATE}-${SLUG}-img4.png"
 # 脚本会自动按出现顺序替换 markdown 中的 image-1---{uuid}.png 占位符```
 
-**降级**：如果 `image_generate(model="openai/gpt-image-2")` 失败，再尝试 `toolkit/image_gen.py` 的 provider fallback（建议顺序：openai → doubao）。如果仍失败，输出提示词供用户自行生成，继续后续步骤。
+**降级**：对 `zhulv`，如果 `image_generate(model="minimax/image-01")` 失败或画面不合格，先尝试 `image_generate(model="openai/gpt-image-2")`；若 OpenAI 也失败，再尝试 `toolkit/image_gen.py` 的 provider fallback（建议顺序：openai → doubao）。如果仍失败，输出提示词供用户自行生成，继续后续步骤。
 
 ---
 
