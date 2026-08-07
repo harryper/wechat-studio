@@ -36,7 +36,7 @@
     - 经典案例：成功创业者访谈偏差——只看到活下来的，没看到倒下的
     - 现代应用：投资、招聘、健康决策中频繁导致系统性误判
   origin: 1943 年哥伦比亚大学沃德研究 → 1972 年丹尼尔·卡尼曼正式命名
-  caution: no
+  caution: "no"
 
 - id: kb-002
   title: 锚定效应
@@ -47,7 +47,7 @@
     - 经典案例：房地产挂牌价、首轮出价、谈判开场数字都会左右最终结果
     - 现代应用：电商定价、薪资谈判、锚定式营销策略的设计原理
   origin: 1974 年 Tversky 与 Kahneman 数字轮盘实验首次系统化提出
-  caution: no
+  caution: "no"
 
 - id: kb-003
   title: 可得性启发
@@ -58,7 +58,7 @@
     - 经典案例：飞机失事新闻后人们普遍高估飞行风险，但汽车更危险
     - 现代应用：媒体议程设置、风险沟通、健康科普中的认知陷阱
   origin: 1973 年 Tversky 与 Kahneman 在《认知心理学》期刊首次提出
-  caution: no
+  caution: "no"
 
 - id: kb-004
   title: 确认偏差
@@ -69,7 +69,7 @@
     - 经典案例：政治极化、社交媒体回音壁效应、科学争议中的双方盲点
     - 现代应用：投资决策、临床误诊、法律审判中的证据筛选偏差
   origin: 1960 年 Peter Wason 选择任务实验 → 1970 年代正式命名
-  caution: no
+  caution: "no"
 
 - id: kb-005
   title: 达克效应
@@ -80,7 +80,7 @@
     - 经典案例：新手司机、初级程序员、初级投资者常高估自身水平
     - 现代应用：自我评估工具、培训项目设计、领导力发展反思
   origin: 1999 年康奈尔大学 Dunning 与 Kruger 论文首次系统提出
-  caution: no
+  caution: "no"
 
 - id: kb-006
   title: 禀赋效应
@@ -91,7 +91,7 @@
     - 经典案例：卖房者定价偏高、分手后不愿归还前任礼物
     - 现代应用：行为经济学营销、谈判策略、产品试用策略设计
   origin: 1980 年 Kahneman、Knetsch 与 Thaler 咖啡杯实验首次实证
-  caution: no
+  caution: "no"
 
 - id: kb-007
   title: 损失厌恶
@@ -102,7 +102,7 @@
     - 经典案例：股票解套不愿割肉、保险过度购买、押金不愿退还
     - 现代应用：产品定价、用户留存、风险沟通中的框架效应设计
   origin: 1979 年 Kahneman 与 Tversky 前景理论中首次形式化提出
-  caution: no
+  caution: "no"
 
 - id: kb-008
   title: 赌徒谬误
@@ -113,7 +113,7 @@
     - 经典案例：连续 5 次红后加倍押黑、股票连续下跌后"抄底"
     - 现代应用：交易策略、产品迭代节奏、用户激励机制设计
   origin: 18-19 世纪概率论普及后逐步被识别，1940 年代系统命名
-  caution: no
+  caution: "no"
 
 - id: kb-009
   title: 概率忽视
@@ -124,7 +124,7 @@
     - 经典案例：飞机恐惧、罕见病过度恐慌、彩票过度消费
     - 现代应用：风险沟通、保险设计、健康科普中的统计素养教育
   origin: 1979 年 Kahneman 与 Tversky 前景理论中提出
-  caution: no
+  caution: "no"
 
 - id: kb-010
   title: 信念偏差
@@ -135,7 +135,7 @@
     - 经典案例：政治议题、伪科学辩护、日常辩论中的"先信后证"
     - 现代应用：批判性思维训练、新闻素养教育、科学传播
   origin: 1966 年 Evans 三段论推理实验首次实证
-  caution: no
+  caution: "no"
 
 # ============================================================
 # 2. decision_theory  决策理论（kb-011 ~ kb-020）
@@ -149,7 +149,7 @@
     - 核心要素：参考点依赖、损失厌恶、敏感性递减、概率权重扭曲
     - 现代应用：行为金融、消费者洞察、公共政策与公共健康沟通
   origin: 1979 年 Kahneman 与 Tversky 在《Econometrica》发表
-  caution: no
+  caution: "no"
 
 - id: kb-012
   title: 机会成本
@@ -160,7 +160,7 @@
     - 经典案例：读研 vs 工作、自建团队 vs 外包、买房 vs 投资股票
     - 现代应用：个人决策、企业战略、政府预算分配中的资源取舍
   origin: 1914 年 Friedrich von Wieser 在《社会经济学》中提出
-  caution: no
+  caution: "no"
 
 - id: kb-013
   title: 边际效用
@@ -171,7 +171,7 @@
     - 经典案例：第一杯水价值连城，第十杯水几乎无用
     - 现代应用：定价策略、套餐设计、用户激励递减效应的解释工具
   origin: 1871 年 Menger 与 Jevons 边际革命中提出
-  caution: no
+  caution: "no"
 
 - id: kb-014
   title: 沉没成本
@@ -182,7 +182,7 @@
     - 经典案例：电影看到一半太难看仍坚持看、亏损股票不肯止损
     - 现代应用：项目管理、产品迭代、组织变革中的退出机制设计
   origin: 1960 年代经济学正式命名，行为经济学加深理解
-  caution: no
+  caution: "no"
 
 - id: kb-015
   title: 博弈论
@@ -193,7 +193,7 @@
     - 经典案例：囚徒困境、智猪博弈、性别战、协调博弈
     - 现代应用：拍卖设计、市场监管、国际外交、算法定价
   origin: 1944 年 von Neumann 与 Morgenstern《博弈论与经济行为》奠基
-  caution: no
+  caution: "no"
 
 - id: kb-016
   title: 帕累托最优
@@ -204,7 +204,7 @@
     - 经典案例：贸易互惠、制度设计、效率与公平的平衡讨论
     - 现代应用：政策评估、组织设计、谈判结果的判断基准
   origin: 1906 年 Vilfredo Pareto《政治经济学手册》提出
-  caution: no
+  caution: "no"
 
 - id: kb-017
   title: 风险厌恶
@@ -215,7 +215,7 @@
     - 经典案例：保险购买、保守型投资组合、确定性收益的偏好
     - 现代应用：投资策略设计、薪酬激励、产品风险揭示设计
   origin: 1947 年 von Neumann 与 Morgenstern 期望效用理论奠基
-  caution: no
+  caution: "no"
 
 - id: kb-018
   title: 动态规划
@@ -226,7 +226,7 @@
     - 经典案例：最短路径、背包问题、序列决策的最优化
     - 现代应用：算法基础、运筹学、强化学习、AI 路径规划
   origin: 1953 年 Richard Bellman 在 RAND 公司研究报告中创立
-  caution: no
+  caution: "no"
 
 - id: kb-019
   title: 决策树
@@ -237,7 +237,7 @@
     - 经典案例：医疗诊断、产品研发路径选择、风险管理决策
     - 现代应用：机器学习、商业分析、医疗决策支持系统
   origin: 1960 年代 Breiman 等人 CART 算法奠定基础
-  caution: no
+  caution: "no"
 
 - id: kb-020
   title: 效用函数
@@ -248,7 +248,7 @@
     - 经典案例：消费选择、投资组合、保险定价的量化基础
     - 现代应用：经济学决策、机器学习奖励函数、行为建模
   origin: 1738 年 Bernoulli 圣彼得堡悖论分析中提出
-  caution: no
+  caution: "no"
 
 # ============================================================
 # 3. philosophy  哲学概念（kb-021 ~ kb-030）
@@ -262,7 +262,7 @@
     - 经典案例：埃隆·马斯克拆解火箭成本、从物理常数推导电池组方案
     - 现代应用：科技创新、战略分析、个人决策的认知工具
   origin: 古希腊亚里士多德提出 → 现代 Elon Musk 等人推广
-  caution: no
+  caution: "no"
 
 - id: kb-022
   title: 奥卡姆剃刀
@@ -273,18 +273,18 @@
     - 经典案例：地心说 vs 日心说、燃素说 vs 氧化说
     - 现代应用：科学方法论、机器学习模型选择、问题诊断
   origin: 14 世纪 William of Ockham 提出
-  caution: no
+  caution: "no"
 
 - id: kb-023
   title: 忒修斯之船
   category: philosophy
   key_points:
-    - 起源：公元前 1 世纪希腊普鲁塔克《希腊罗马名人传》首次记载
+    - 起源：公元 1 世纪末普鲁塔克《希腊罗马名人传》首次记载
     - 机制：若一艘船被逐步替换所有零件，它还是原来那艘船吗
     - 经典案例：人类细胞 7 年全部更新、渐进式公司转型中的身份认同
     - 现代应用：身份哲学、品牌演化、组织文化传承的思考
-  origin: 公元前 1 世纪 Plutarch《希腊罗马名人传》记载
-  caution: no
+  origin: 公元 1 世纪末 Plutarch《希腊罗马名人传》记载
+  caution: "no"
 
 - id: kb-024
   title: 缸中之脑
@@ -295,7 +295,7 @@
     - 经典案例：黑客帝国、虚拟现实哲学、《西部世界》核心命题
     - 现代应用：AI 与意识哲学、虚拟现实伦理、认知科学基础
   origin: 1981 年 Hilary Putnam《理性、真理与历史》正式提出
-  caution: yes
+  caution: "yes"
 
 - id: kb-025
   title: 洞穴寓言
@@ -306,7 +306,7 @@
     - 经典案例：柏拉图理念论的核心隐喻、苏格拉底教育的起点
     - 现代应用：媒介素养、意识形态批判、教育哲学
   origin: 公元前 360 年柏拉图《理想国》第七卷
-  caution: no
+  caution: "no"
 
 - id: kb-026
   title: 芝诺悖论
@@ -317,7 +317,7 @@
     - 经典案例：飞矢不动、阿基里斯永远追不上乌龟、运动的连续性问题
     - 现代应用：无穷级数极限、量子力学与连续性、计算理论的哲学反思
   origin: 公元前 5 世纪 Zeno of Elea 提出
-  caution: no
+  caution: "no"
 
 - id: kb-027
   title: 休谟问题
@@ -328,7 +328,7 @@
     - 经典案例：科学事实能否推出道德规范、效率最大化是否等于公平
     - 现代应用：伦理学、政治哲学、AI 价值对齐问题
   origin: 1739 年 David Hume《人性论》提出
-  caution: no
+  caution: "no"
 
 - id: kb-028
   title: 功利主义
@@ -339,7 +339,7 @@
     - 经典案例：边沁的快乐计算、密尔的精致化版本、福利政策评估
     - 现代应用：公共政策、伦理学教育、AI 价值函数设计
   origin: 1789 年 Jeremy Bentham《道德与立法原理导论》奠基
-  caution: no
+  caution: "no"
 
 - id: kb-029
   title: 康德义务论
@@ -350,7 +350,7 @@
     - 经典案例：不可撒谎、不可把人当手段、普遍化原则
     - 现代应用：伦理学、商业道德、AI 价值对齐规则约束
   origin: 1785 年 Immanuel Kant《道德形而上学奠基》提出
-  caution: no
+  caution: "no"
 
 - id: kb-030
   title: 存在主义
@@ -361,7 +361,7 @@
     - 经典案例：萨特《存在与虚无》、加缪《西西弗神话》、存在主义心理治疗
     - 现代应用：心理治疗、组织管理、个人意义建构
   origin: 19 世纪 Kierkegaard 奠基 → 20 世纪 Sartre、Heidegger 系统化
-  caution: no
+  caution: "no"
 
 # ============================================================
 # 4. psychology  心理学理论（kb-031 ~ kb-040）
@@ -375,18 +375,18 @@
     - 经典案例：吸烟者知道有害仍继续、决策后抬高所选方案的吸引力
     - 现代应用：广告说服、健康行为改变、组织变革中的阻力管理
   origin: 1957 年 Leon Festinger《认知失调论》专著系统提出
-  caution: no
+  caution: "no"
 
 - id: kb-032
   title: 心流
   category: psychology
   key_points:
-    - 起源：1975 年 Mihaly Csikszentmihalyi 在《心流：最优体验心理学》中提出
+    - 起源：1990 年 Mihaly Csikszentmihalyi 在《心流：最优体验心理学》中正式提出
     - 机制：技能与挑战匹配时，进入全神贯注、时间感消失、享受过程的内在动机状态
     - 经典案例：艺术家创作、运动员竞技、程序员沉浸式编码
     - 现代应用：教育设计、游戏化机制、产品体验设计
-  origin: 1975 年 Mihaly Csikszentmihalyi《心流：最优体验心理学》提出
-  caution: no
+  origin: 1990 年 Mihaly Csikszentmihalyi《心流：最优体验心理学》正式提出
+  caution: "no"
 
 - id: kb-033
   title: 习得性无助
@@ -397,7 +397,7 @@
     - 经典案例：长期受虐关系、慢性抑郁、职场中的被动员工
     - 现代应用：心理治疗、教育干预、辅导与教练技术
   origin: 1967 年 Martin Seligman 不可逃避电击实验首次发现
-  caution: no
+  caution: "no"
 
 - id: kb-034
   title: 皮格马利翁效应
@@ -408,7 +408,7 @@
     - 经典案例：教师对学生的期望、领导对下属的期望、家长对孩子的期望
     - 现代应用：教育管理、领导力发展、运动心理学的期望设定
   origin: 1968 年 Rosenthal 与 Jacobson《课堂中的皮格马利翁》提出
-  caution: no
+  caution: "no"
 
 - id: kb-035
   title: 旁观者效应
@@ -419,7 +419,7 @@
     - 经典案例：街头求救无人响应、邮件群发无人回复、组织内议而不决
     - 现代应用：应急响应设计、产品求助流程、组织问责机制
   origin: 1964 年 Kitty Genovese 案 → 1969 年 Darley 与 Latané 系统化
-  caution: no
+  caution: "no"
 
 - id: kb-036
   title: 镜像神经元
@@ -430,7 +430,7 @@
     - 经典案例：婴儿模仿、运动员观察训练、共情的神经基础
     - 现代应用：自闭症研究、运动学习、神经康复治疗
   origin: 1990 年代 Giacomo Rizzolatti 在帕尔马大学首次发现
-  caution: no
+  caution: "no"
 
 - id: kb-037
   title: 双重加工理论
@@ -441,7 +441,7 @@
     - 经典案例：阅读理解、自动驾驶中的边缘情况处理、专家直觉
     - 现代应用：用户界面设计、决策辅助工具、教育训练方法
   origin: 1970 年代成型 → 2011 年 Kahneman《快与慢》系统化
-  caution: no
+  caution: "no"
 
 - id: kb-038
   title: 依恋理论
@@ -452,7 +452,7 @@
     - 经典案例：陌生情境实验、伴侣关系中的依恋类型、代际传递
     - 现代应用：心理治疗、亲密关系、育儿指导
   origin: 1969 年 John Bowlby《依恋与失落》奠基
-  caution: no
+  caution: "no"
 
 - id: kb-039
   title: 强化理论
@@ -463,7 +463,7 @@
     - 经典案例：斯金纳箱、老鼠按杠杆取食、员工奖励制度
     - 现代应用：行为矫正、产品激励设计、组织管理
   origin: 1938 年 B.F. Skinner《有机体的行为》系统提出
-  caution: no
+  caution: "no"
 
 - id: kb-040
   title: 情绪颗粒度
@@ -474,7 +474,7 @@
     - 经典案例：识别"挫败"vs"失望"vs"委屈"的能力差异影响决策质量
     - 现代应用：情商教育、心理治疗、AI 情感识别模型训练
   origin: 2004 年 Lisa Feldman Barrett《情感的本质》中提出
-  caution: no
+  caution: "no"
 
 # ============================================================
 # 5. economics  经济学原理（kb-041 ~ kb-050）
@@ -488,7 +488,7 @@
     - 经典案例：自由市场资源配置、价格信号传递供需、利润驱动创新
     - 现代应用：市场机制设计、产业政策辩论、政府与市场边界讨论
   origin: 1776 年 Adam Smith《国富论》首次系统提出
-  caution: no
+  caution: "no"
 
 - id: kb-042
   title: 比较优势
@@ -499,7 +499,7 @@
     - 经典案例：国际贸易分工、医生 vs 打字员的相对优势、岗位协作
     - 现代应用：国际贸易政策、跨国企业布局、个人职业规划
   origin: 1817 年 David Ricardo《政治经济学及赋税原理》提出
-  caution: no
+  caution: "no"
 
 - id: kb-043
   title: 边际递减
@@ -510,7 +510,7 @@
     - 经典案例：施肥过量反减产、加班过久产出递减
     - 现代应用：劳动经济学、土地利用、产品功能迭代的边际收益评估
   origin: 19 世纪边际革命，Jevons、Menger、Walras 系统化
-  caution: no
+  caution: "no"
 
 - id: kb-044
   title: 机会成本
@@ -521,7 +521,7 @@
     - 经典案例：政府财政拨款、土地用途选择、企业资本支出决策
     - 现代应用：宏观经济政策评估、企业投资决策、个人理财规划
   origin: 1914 年 Friedrich von Wieser《社会经济学》命名
-  caution: no
+  caution: "no"
 
 - id: kb-045
   title: 供需曲线
@@ -532,7 +532,7 @@
     - 经典案例：商品房市场、劳动力市场、农产品价格波动
     - 现代应用：定价策略、市场分析、政策对市场冲击的评估
   origin: 1870 年代 Walras、Marshall 边际革命中系统化
-  caution: no
+  caution: "no"
 
 - id: kb-046
   title: GDP 悖论
@@ -543,7 +543,7 @@
     - 经典案例：日本 GDP 大幅低估国民福利、资源消耗国 GDP 高估实际发展
     - 现代应用：绿色 GDP 评估、可持续发展指标、政策评价方法
   origin: 1972 年 Nordhaus 与 Tobin《衡量经济增长的社会成本》
-  caution: no
+  caution: "no"
 
 - id: kb-047
   title: 菲利普斯曲线
@@ -554,7 +554,7 @@
     - 经典案例：1970 年代美国滞胀、央行政策两难、工资-价格螺旋
     - 现代应用：货币政策制定、通胀预期管理、央行政策沟通
   origin: 1958 年 A.W. Phillips《1861-1957 年英国失业与货币工资变动率》
-  caution: no
+  caution: "no"
 
 - id: kb-048
   title: 挤出效应
@@ -565,7 +565,7 @@
     - 经典案例：财政刺激效果打折、基建投资的乘数衰减
     - 现代应用：财政政策评估、宏观审慎管理、政府投资规模决策
   origin: 1970 年代货币主义与凯恩斯主义论战中成型
-  caution: no
+  caution: "no"
 
 - id: kb-049
   title: 麦金农命题
@@ -576,7 +576,7 @@
     - 经典案例：拉美债务危机前的金融管制、东亚金融自由化改革
     - 现代应用：发展中国家金融改革、利率市场化政策评估
   origin: 1973 年 Ronald McKinnon《经济发展中的货币与资本》提出
-  caution: no
+  caution: "no"
 
 - id: kb-050
   title: 行为经济学
@@ -587,7 +587,7 @@
     - 经典案例：心理账户、储蓄率过低、过度交易、即时偏见
     - 现代应用：消费者洞察、政策设计（助推理论）、金融产品创新
   origin: 1980 年代 Thaler 等人推动建立，2017 年获诺贝尔经济学奖
-  caution: no
+  caution: "no"
 
 # ============================================================
 # 6. paradox  经典悖论（kb-051 ~ kb-060）
@@ -604,7 +604,7 @@
     - 经典案例：量子力学基础哲学讨论、双缝实验、观测者效应
     - 现代应用：量子计算、量子哲学、多世界诠释、信息论
   origin: 1935 年 Erwin Schrödinger《量子力学现状》论文
-  caution: no
+  caution: "no"
 
 - id: kb-052
   title: 费米悖论
@@ -615,7 +615,7 @@
     - 经典案例：德雷克方程估算、阿雷西博信息发送、系外行星搜寻
     - 现代应用：搜寻地外文明（SETI）、天体生物学、统计学与概率论
   origin: 1950 年 Enrico Fermi 午餐闲谈中提出
-  caution: no
+  caution: "no"
 
 - id: kb-053
   title: 双生子悖论
@@ -626,7 +626,7 @@
     - 经典案例：水星号宇航员、双胞胎 NASA 兄弟、卫星时钟校准
     - 现代应用：GPS 全球定位系统时间校准、长期航天任务设计
   origin: 1911 年 Paul Langevin 法国哲学学会提出
-  caution: no
+  caution: "no"
 
 - id: kb-054
   title: 莫比乌斯环
@@ -637,7 +637,7 @@
     - 经典案例：克莱因瓶、纽结理论、磁带单面录音悖论
     - 现代应用：工业皮带设计、艺术装置、拓扑学基础
   origin: 1858 年 Johann Benedict Listing 与 Möbius 独立发现
-  caution: no
+  caution: "no"
 
 - id: kb-055
   title: 阿里士悖论
@@ -648,7 +648,7 @@
     - 经典案例：与二分法、飞矢不动、操场悖论共同构成芝诺四悖论
     - 现代应用：无穷级数极限、微积分基础、连续性哲学反思
   origin: 公元前 5 世纪 Zeno of Elea 提出
-  caution: no
+  caution: "no"
 
 - id: kb-056
   title: 辛普森悖论
@@ -659,7 +659,7 @@
     - 经典案例：UC Berkeley 1973 年性别录取悖论、医学治疗效果反转
     - 现代应用：A/B 测试陷阱、临床试验解读、流行病学统计
   origin: 1951 年 Edward Simpson 在《英国数学统计学杂志》提出
-  caution: no
+  caution: "no"
 
 - id: kb-057
   title: 祖父悖论
@@ -670,7 +670,7 @@
     - 经典案例：回到过去阻止自身诞生、阻止重要历史事件
     - 现代应用：时间旅行物理学、多世界诠释、因果逻辑反思
   origin: 1943 年 René Barjavel《反叛的旅行者》小说首次描述
-  caution: no
+  caution: "no"
 
 - id: kb-058
   title: 迪奥尼修斯之谜
@@ -681,7 +681,7 @@
     - 经典案例：古希腊船舰悖论、忒修斯之船的早期版本、个人同一性哲学
     - 现代应用：人格同一性哲学、记忆与身份、法律责任追溯
   origin: 古希腊神话 → 中世纪经院哲学讨论中成型
-  caution: no
+  caution: "no"
 
 - id: kb-059
   title: 巴斯卡赌注
@@ -692,7 +692,7 @@
     - 经典案例：决策论中风险与收益的非对称分析、宗教哲学论证
     - 现代应用：决策理论、风险与回报的量化分析、AI 价值对齐
   origin: 1670 年 Blaise Pascal《思想录》正式提出
-  caution: yes
+  caution: "yes"
 
 - id: kb-060
   title: 麦克斯韦妖
@@ -703,4 +703,4 @@
     - 经典案例：信息与熵的早期讨论、物理学经典思想实验
     - 现代应用：信息热力学、量子计算、布朗马达设计
   origin: 1867 年 James Clerk Maxwell《热理论》提出
-  caution: no
+  caution: "no"
