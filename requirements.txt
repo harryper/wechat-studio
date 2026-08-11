@@ -1,3 +1,5 @@
+flask>=3.0
+gunicorn>=21.2
 markdown>=3.5
 beautifulsoup4>=4.12
 cssutils>=2.9

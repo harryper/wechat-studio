@@ -1,0 +1,59 @@
+services:
+  wechat-studio-web:
+    build: .
+    container_name: wechat-studio-web
+    restart: unless-stopped
+    ports:
+      - "9997:9997"
+    volumes:
+      # Source code bind-mounted for live edits during dev.
+      - ./webapp:/app/webapp
+      - ./toolkit:/app/toolkit
+      - ./scripts:/app/scripts
+      - ./references:/app/references
+      - ./config.yaml:/app/config.yaml:ro
+      # Host-side logs are picked up by logrotate on the host.
+      - /var/log/wechat-studio:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PATH=/usr/bin:/bin:/usr/local/bin
+      - TZ=Asia/Shanghai
+      - APP_PASSWORD=${APP_PASSWORD:-asdf123456}
+      - APP_COOKIE_SECRET=${APP_COOKIE_SECRET:-wechat-studio-cookie-secret}
+      # WeChat credentials (config.yaml references these via ${VAR} syntax).
+      - WECHAT_APPID=${WECHAT_APPID:-}
+      - WECHAT_SECRET=${WECHAT_SECRET:-}
+      # Image generation providers (used by cli.py image paths; not by
+      # the web preview/publish flow itself, but kept here so the
+      # container can do downstream image work if needed).
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DOUBAO_API_KEY=${DOUBAO_API_KEY:-}
+      - GUNICORN_WORKERS=2
+      - GUNICORN_TIMEOUT=60
+      - GUNICORN_GRACEFUL_TIMEOUT=10
+      - GUNICORN_KEEPALIVE=5
+      - GUNICORN_MAX_REQUESTS=500
+      - GUNICORN_MAX_REQUESTS_JITTER=100
+      - GUNICORN_LOG_LEVEL=info
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 128
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "http://127.0.0.1:9997/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
