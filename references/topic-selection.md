@@ -94,7 +94,7 @@ python3 {skill_dir}/scripts/check_blacklist.py "{候选标题}" --client {client
 
 - 当前 topic_id 已在历史中 → 跳过（Step 2 轮转已处理，这里是双保险）
 - 同一 category 在**最近 3 篇**内出现 ≥ 2 次 → 综合评分扣 2 分
-- 同一 category 在**最近 7 篇**内出现 ≥ 3 次 → 综合评分扣 3 分，标注"�️ category 过度集中"
+- 同一 category 在**最近 7 篇**内出现 ≥ 3 次 → 综合评分扣 3 分，标注"⚠️ category 过度集中"
 - 超过 7 篇无此限制
 
 ## 历史效果闭环
