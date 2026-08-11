@@ -4,12 +4,15 @@
 
 微信公众号工作台，提供：
   - APP_PASSWORD 鉴权（HMAC cookie，30 天）
-  - 主题选择 → LLM 写文章 → 渲染预览
+  - 主题选择 → LLM 写文章 + 配图 → 渲染预览
+  - 历史记录（最近 N 条，持久化到 webapp/_data/history.json）
   - 推送按钮 → cli.py publish
 
 数据流：
-  1. 浏览器 POST /api/preview  →  write_article (LLM, 30-180s) → cli.py preview → 返回 HTML
-  2. 浏览器 POST /api/publish  →  cli.py publish → 返回 stdout/stderr
+  1. POST /api/preview          → write_article (LLM) + 图片 + cli.py preview → HTML
+  2. GET  /api/history          → 最近 N 条预览（最新在前）
+  3. GET  /api/history/<id>     → 某条预览的元数据（html 不重发，按需走 /api/preview 重生成）
+  4. POST /api/publish          → 用某条 history 的 workdir 跑 cli.py publish
 
 cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
@@ -30,7 +33,12 @@ from typing import Any, Dict, List, Optional
 import yaml
 from flask import Flask, jsonify, redirect, render_template, request
 
-from .render import render_preview_html, write_article_to_workdir
+from . import history
+from .render import (
+    generate_images_in_workdir,
+    render_preview_html,
+    write_article_to_workdir,
+)
 
 # ── 路径常量 ─────────────────────────────────────────────────────────
 # webapp/app.py → 父目录即 skill 根
@@ -118,11 +126,7 @@ def _run_cli(args: List[str], env: Dict[str, str],
 # ── 鉴权钩子 ─────────────────────────────────────────────────────────
 @app.before_request
 def require_auth():
-    """未登录请求一律拒之门外。/login 和 /api/health 是公开的。
-
-    - 浏览器访问任意页面 → 302 重定向到 /login
-    - API 调用未带 cookie → 401 JSON
-    """
+    """未登录请求一律拒之门外。/login 和 /api/health 是公开的。"""
     if (
         request.path in PUBLIC_PATHS
         or request.path.startswith("/static/")
@@ -189,18 +193,19 @@ def health():
         {
             "ok": True,
             "app": "wechat-studio",
-            "version": "1.2.0",
+            "version": "1.3.0",
             "corpus_size": len(_load_corpus()),
+            "history_count": len(history.list_entries()),
         }
     )
 
 
 @app.route("/api/preview", methods=["POST"])
 def api_preview():
-    """Body: {topic_id, theme} → write_article → cli preview → HTML。
+    """Body: {topic_id, theme} → write_article + 图片 + cli preview → HTML。
 
-    LLM 调用通常 30-180 秒；超过 gunicorn 超时（默认 300s）会被 worker
-    回收并以 502/504 形式呈现给浏览器。
+    LLM 调用通常 30-180 秒；图片另加 10-30 秒（AI）或 <1 秒（占位图）。
+    整个流程若超过 gunicorn 超时（默认 300s）会被 worker 回收并以 502/504 呈现。
     """
     data = request.get_json(force=True, silent=True) or {}
     topic_id = (data.get("topic_id") or "").strip()
@@ -216,11 +221,18 @@ def api_preview():
                         "phase": "input"}), 404
 
     try:
-        workdir, md_text = write_article_to_workdir(topic)
+        workdir, image_rels = write_article_to_workdir(topic)
     except RuntimeError as e:
         log.error("LLM write failed: %s", e)
         return jsonify({"ok": False, "error": str(e),
                         "phase": "write"}), 500
+
+    try:
+        image_mode = generate_images_in_workdir(workdir, topic, image_rels)
+    except Exception as e:
+        log.error("image generation hard-failed: %s", e)
+        return jsonify({"ok": False, "error": f"图片生成失败：{e}",
+                        "phase": "images"}), 500
 
     try:
         html = render_preview_html(workdir, theme)
@@ -229,11 +241,24 @@ def api_preview():
         return jsonify({"ok": False, "error": f"预览渲染失败：{e}",
                         "phase": "render"}), 500
 
-    log.info("preview %s → %d chars HTML", topic_id, len(html))
+    entry_id = history.add({
+        "topic_id": topic.get("id"),
+        "title": topic.get("title", ""),
+        "category": topic.get("category", ""),
+        "theme": theme,
+        "html": html,
+        "workdir": str(workdir),
+        "image_mode": image_mode,
+    })
+    log.info("preview %s → history #%d (%s, %d chars HTML)",
+             topic_id, entry_id, image_mode, len(html))
+
     return jsonify(
         {
             "ok": True,
+            "history_id": entry_id,
             "html": html,
+            "image_mode": image_mode,
             "topic": {
                 "id": topic.get("id"),
                 "title": topic.get("title"),
@@ -244,34 +269,62 @@ def api_preview():
     )
 
 
+# ── 历史记录 ──────────────────────────────────────────────────────────
+@app.route("/api/history", methods=["GET"])
+def api_history_list():
+    """返回最近 N 条预览（最新在前）。html 字段省略 — 详情走 /api/preview 重渲染或回看。"""
+    return jsonify(
+        {
+            "ok": True,
+            "entries": [
+                {k: v for k, v in e.items() if k != "html"}
+                for e in history.list_entries()
+            ],
+        }
+    )
+
+
+@app.route("/api/history/<int:entry_id>", methods=["GET"])
+def api_history_get(entry_id: int):
+    """返回某条预览的完整 html + 元数据（用于「回看」按钮）。"""
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    return jsonify({"ok": True, "entry": entry})
+
+
 # ── 推送 ─────────────────────────────────────────────────────────────
 @app.route("/api/publish", methods=["POST"])
 def api_publish():
-    """Body: {topic_id, theme} → synthesize md → cli publish → stdout/stderr。
+    """Body: {history_id} → cli.py publish → stdout/stderr。
 
-    注意：这里不向 cli.py 传 --appid/--secret — 让 config.yaml 的 ${VAR}
-    占位符展开流程（已在本机 env 中提供 WECHAT_APPID / WECHAT_SECRET）
-    完成凭证注入。
+    必须传 history_id 而不是 topic_id — publish 只能跑在某次 preview 产
+    出的 workdir 上（那里有 article.md + 本地图片路径，cli.py publish
+    会自动上传图片到微信）。
     """
     data = request.get_json(force=True, silent=True) or {}
-    topic_id = (data.get("topic_id") or "").strip()
-    theme = (data.get("theme") or "terracotta").strip() or "terracotta"
+    history_id = data.get("history_id")
+    if not isinstance(history_id, int):
+        try:
+            history_id = int(history_id)
+        except (TypeError, ValueError):
+            history_id = None
 
-    if not topic_id:
-        return jsonify({"ok": False, "error": "topic_id 不能为空"}), 400
+    if history_id is None:
+        return jsonify({"ok": False, "error": "history_id 不能为空"}), 400
 
-    topic = _find_topic(topic_id)
-    if not topic:
-        return jsonify({"ok": False, "error": f"未找到主题 {topic_id}"}), 404
+    entry = history.get(history_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{history_id} 不存在"}), 404
 
-    try:
-        workdir, _ = write_article_to_workdir(topic)
-    except RuntimeError as e:
-        log.error("LLM write failed for publish: %s", e)
-        return jsonify({"ok": False, "error": str(e),
-                        "phase": "write"}), 500
-
+    workdir = Path(entry["workdir"])
+    theme = entry["theme"]
     md_path = workdir / "article.md"
+    if not md_path.exists():
+        return jsonify({"ok": False,
+                        "error": "article.md 缺失 — workdir 可能已被清理",
+                        "phase": "session"}), 500
+
     # 切到 workdir 作为 cwd 父级 — cli.py 解析相对图片路径时使用
     # md 文件所在目录，避免污染 SKILL_DIR。
     old_cwd = os.getcwd()
@@ -290,9 +343,10 @@ def api_publish():
             "returncode": cli_result["returncode"],
             "stdout": cli_result["stdout"],
             "stderr": cli_result["stderr"],
+            "history_id": history_id,
             "topic": {
-                "id": topic.get("id"),
-                "title": topic.get("title"),
+                "id": entry.get("topic_id"),
+                "title": entry.get("title"),
             },
             "theme": theme,
         }

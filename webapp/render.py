@@ -1,31 +1,49 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Article generation + preview rendering pipeline.
+"""Article generation + image generation + preview rendering pipeline.
 
-Replaces the structural mock in webapp/synthesize.py with a real
-content pipeline:
+Three-step pipeline that replaces the structural mock in
+webapp/synthesize.py with real content:
 
     1. write_article()        — LLM (MiniMax via Anthropic-compatible API)
-    2. cli.py preview         — render themed HTML
+    2. generate_images()      — image_gen.py with PIL placeholder fallback
+    3. cli.py preview         — render themed HTML
 
 The workdir layout:
     {workdir}/
-      article.md       — output of write_article (no image refs)
-      article.html     — output of cli.py preview
+      article.md
+      article.html
+      images/
+        cover.jpg
+        inline-1.jpg
+        inline-2.jpg
 
-Strict mode: every failure raises — caller surfaces to user, no fallback.
+For the iframe srcdoc preview we re-write ``<img src="images/X.jpg">``
+to ``<img src="data:image/jpeg;base64,...">`` so the images load without
+a web server. cli.py publish keeps the relative paths, since it uploads
+local files to WeChat and rewrites the URLs itself.
+
+Image strategy: try the configured AI providers (MiniMax / OpenAI /
+Doubao — whichever has quota + key) in order. If every provider fails,
+fall back to locally-generated placeholder images via PIL — deterministic
+color blocks with the topic title baked in via Pillow's default font.
+This keeps the WYSIWYG preview usable in environments where no AI image
+provider is configured.
 """
 
 from __future__ import annotations
 
+import base64
 import logging
+import re
 import subprocess
 import sys
-import tempfile
+import uuid
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-# Make 'scripts.write_article' importable without packaging.
+# Make 'scripts.write_article' and 'image_gen' importable without packaging.
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TOOLKIT_DIR = SKILL_DIR / "toolkit"
 
@@ -34,29 +52,247 @@ for p in (str(SKILL_DIR), str(TOOLKIT_DIR)):
         sys.path.insert(0, p)
 
 from scripts.write_article import write_article  # type: ignore  # noqa: E402
+from image_gen import generate_image  # type: ignore  # noqa: E402
 
 log = logging.getLogger("wechat-studio.render")
 
 
-# ── 步骤 1：写文章（仅 LLM，无图片）─────────────────────────────────────
-def write_article_to_workdir(topic: Dict[str, Any]) -> Tuple[Path, str]:
-    """Write the article markdown into a fresh workdir.
+# ── workdir 路径 ──────────────────────────────────────────────────────
+# Web UI 把 workdir 放在 bind-mount 的 webapp/_data/ 下，这样 gunicorn
+# worker 回收、容器重启都不会丢 workdir → publish 总是能跑到 article.md。
+# history.py 会按 history id 给每个 workdir 一个稳定名字。
+WORKDIR_ROOT = Path(__file__).resolve().parent / "_data" / "workdirs"
 
-    Returns ``(workdir, md_text)``. cli.py publish later uses the workdir
-    to resolve relative paths, so callers should keep it alive until publish.
+
+# ── 提示词构造 ────────────────────────────────────────────────────────
+def _key_points(topic: Dict[str, Any]) -> List[str]:
+    return [p for p in (topic.get("key_points") or []) if p]
+
+
+def _cover_prompt(topic: Dict[str, Any]) -> str:
+    """Cover-image prompt — sets the article's visual identity."""
+    title = (topic.get("title") or "").strip()
+    category = (topic.get("category") or "").strip()
+    kps = _key_points(topic)
+    head = kps[0] if kps else title
+    return (
+        f"「{title}」概念插画，"
+        f"{category}主题，"
+        f"核心意象：{head}，"
+        "学术插画风格，深色调，高质感构图，留白，不含文字"
+    )
+
+
+def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
+    """Inline-image prompts — one per major section after §1 and §3."""
+    title = (topic.get("title") or "").strip()
+    kps = _key_points(topic)
+    fallback = title or "概念图示"
+    return [
+        (
+            f"「{kps[1] if len(kps) >= 2 else kps[0] if kps else fallback}」"
+            "经典场景示意，简洁线稿风格，浅色背景，无文字"
+        ),
+        (
+            f"「{kps[2] if len(kps) >= 3 else kps[0] if kps else fallback}」"
+            "现代应用示意，数据可视化风格，无文字"
+        ),
+    ]
+
+
+# ── PIL 占位图（AI provider 全失败时用）────────────────────────────────
+def _placeholder_image(topic: Dict[str, Any], role: str) -> bytes:
+    """Generate a deterministic placeholder JPEG.
+
+    ``role`` is "cover", "inline-1", or "inline-2" — controls palette.
+
+    The placeholder text is ASCII-only (topic id + category) because the
+    container ships without CJK fonts and PIL's default bitmap font
+    renders Chinese as tofu. Configure an image provider in config.yaml
+    to get real (topical, multilingual) AI-generated artwork.
     """
-    workdir = Path(tempfile.mkdtemp(prefix="ws-render-"))
+    from PIL import Image, ImageDraw, ImageFont
+
+    if role == "cover":
+        size = (1024, 512)
+        bg = (24, 28, 36)
+        fg = (220, 224, 232)
+        accent = (255, 77, 109)
+    elif role == "inline-1":
+        size = (800, 450)
+        bg = (244, 240, 232)
+        fg = (62, 50, 40)
+        accent = (180, 100, 60)
+    else:
+        size = (800, 450)
+        bg = (234, 240, 246)
+        fg = (40, 56, 72)
+        accent = (60, 130, 180)
+
+    img = Image.new("RGB", size, bg)
+    draw = ImageDraw.Draw(img)
+
+    # diagonal accent stripe for visual texture
+    for offset in range(-size[1], size[0], 24):
+        draw.line([(offset, 0), (offset + size[1], size[1])], fill=accent, width=2)
+
+    topic_id = (topic.get("id") or "").strip()
+    category = (topic.get("category") or "").strip()
+    role_label = {"cover": "PLACEHOLDER COVER", "inline-1": "PLACEHOLDER", "inline-2": "PLACEHOLDER"}.get(role, "PLACEHOLDER")
+
+    # Try a few common font paths; fall back to PIL default bitmap font.
+    def _font(size: int):
+        candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        ]
+        for path in candidates:
+            if Path(path).exists():
+                try:
+                    return ImageFont.truetype(path, size)
+                except OSError:
+                    continue
+        return ImageFont.load_default()
+
+    big = _font(56 if role == "cover" else 36)
+    small = _font(28 if role == "cover" else 22)
+
+    def _draw_centered(text: str, y_frac: float, font, color) -> None:
+        if not text:
+            return
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        x = max(0, (size[0] - w) // 2)
+        y = int(size[1] * y_frac - h / 2)
+        draw.text((x, y), text, fill=color, font=font)
+
+    _draw_centered(role_label, 0.36, big, accent if role == "cover" else fg)
+    if topic_id:
+        _draw_centered(topic_id, 0.56, big, fg)
+    if category:
+        _draw_centered(category, 0.74, small, accent if role != "cover" else fg)
+    if role == "cover":
+        _draw_centered("configure image api key for real art", 0.88, small, fg)
+
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=88, optimize=True)
+    return buf.getvalue()
+
+
+# ── 图像插入位置 ──────────────────────────────────────────────────────
+def _find_after_quote(lines: List[str]) -> Optional[int]:
+    """Insert position right after the closing ``> ...`` quote block."""
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith(">"):
+            return i + 2
+    return None
+
+
+def _find_before_section(lines: List[str], candidates: Tuple[str, ...]) -> Optional[int]:
+    """Insert position just before the first matching section heading."""
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("## "):
+            continue
+        for cand in candidates:
+            if cand in stripped:
+                return i
+    return None
+
+
+def _insert_images(md: str, cover_rel: str, inline_rels: List[str]) -> str:
+    """Insert image references at sensible positions in the markdown."""
+    lines = md.split("\n")
+    inserts: List[Tuple[int, str]] = []
+
+    cover_pos = _find_after_quote(lines)
+    if cover_pos is not None:
+        inserts.append((cover_pos, f"![封面]({cover_rel})"))
+
+    inline1_pos = _find_before_section(lines, ("§ 2", "## § 3", "三、"))
+    if inline1_pos is not None and inline_rels:
+        inserts.append((inline1_pos, f"![配图]({inline_rels[0]})"))
+
+    inline2_pos = _find_before_section(lines, ("§ 4", "## 反直觉", "四、", "局限"))
+    if inline2_pos is not None and len(inline_rels) >= 2:
+        inserts.append((inline2_pos, f"![配图]({inline_rels[1]})"))
+
+    for pos, text in sorted(inserts, key=lambda x: -x[0]):
+        lines.insert(pos, text)
+
+    return "\n".join(lines)
+
+
+# ── 步骤 1：写文章（仅 LLM，无图片）─────────────────────────────────────
+def write_article_to_workdir(topic: Dict[str, Any], workdir: Optional[Path] = None) -> Tuple[Path, List[str]]:
+    """Write the article markdown into a workdir.
+
+    If ``workdir`` is None, creates a fresh one under WORKDIR_ROOT. Otherwise
+    reuses the given path (used by history re-publish from an existing entry).
+
+    Returns ``(workdir, image_rels)`` — image_rels lists the relative
+    paths that will be filled in by generate_images_in_workdir().
+    """
+    if workdir is None:
+        WORKDIR_ROOT.mkdir(parents=True, exist_ok=True)
+        workdir = WORKDIR_ROOT / uuid.uuid4().hex
+        workdir.mkdir()
+    (workdir / "images").mkdir(exist_ok=True)
 
     md_text = write_article(topic)
 
+    cover_rel = "images/cover.jpg"
+    inline_rels = ["images/inline-1.jpg", "images/inline-2.jpg"]
+    md_with_images = _insert_images(md_text, cover_rel, inline_rels)
+
     md_file = workdir / "article.md"
-    md_file.write_text(md_text, encoding="utf-8")
-    return workdir, md_text
+    md_file.write_text(md_with_images, encoding="utf-8")
+
+    return workdir, [cover_rel, *inline_rels]
 
 
-# ── 步骤 2：渲染预览（cli.py preview）──────────────────────────────────
+# ── 步骤 2：生成图片（AI 链 + PIL 占位图 fallback）──────────────────────
+def generate_images_in_workdir(
+    workdir: Path,
+    topic: Dict[str, Any],
+    image_rels: List[str],
+) -> str:
+    """Generate cover + 2 inline images.
+
+    Tries the configured AI providers (image_gen.generate_image). If every
+    provider fails — usually because no API key is configured or quota is
+    exhausted — falls back to local PIL placeholder images so the preview
+    still has visual structure. Returns one of ``"real"`` or ``"placeholder"``
+    so the UI can tell the user which mode was used.
+    """
+    img_dir = workdir / "images"
+    img_dir.mkdir(exist_ok=True)
+
+    roles = ["cover", "inline-1", "inline-2"]
+    prompts = [_cover_prompt(topic), *_inline_prompts(topic)]
+
+    ai_failed: List[str] = []
+    for rel, role, prompt in zip(image_rels, roles, prompts):
+        target = img_dir / Path(rel).name
+        try:
+            generate_image(prompt, str(target), size="cover" if role == "cover" else "article")
+            continue
+        except Exception as e:
+            ai_failed.append(f"{role}: {type(e).__name__}: {e}")
+            log.warning("AI image gen failed for %s: %s", role, e)
+            # Drop a placeholder so the file always exists for cli.py preview / publish.
+            target.write_bytes(_placeholder_image(topic, role))
+
+    if ai_failed:
+        log.warning("all AI providers failed; using PIL placeholders. errors=%s",
+                    "; ".join(ai_failed)[:400])
+        return "placeholder"
+    return "real"
+
+
+# ── 步骤 3：渲染预览（cli.py preview）──────────────────────────────────
 def render_preview_html(workdir: Path, theme: str) -> str:
-    """Run cli.py preview on article.md and return the themed HTML."""
+    """Run cli.py preview on article.md and return HTML with embedded data URIs."""
     md_file = workdir / "article.md"
     html_file = workdir / "article.html"
 
@@ -82,4 +318,35 @@ def render_preview_html(workdir: Path, theme: str) -> str:
             f"cli.py preview 失败 (rc={proc.returncode}): "
             f"{(proc.stderr or proc.stdout).strip()}"
         )
-    return html_file.read_text(encoding="utf-8")
+    html = html_file.read_text(encoding="utf-8")
+    return _embed_images_as_data_uris(html, workdir)
+
+
+# ── 把图片 src 替换成 data URI（给 iframe srcdoc 用）────────────────────
+_IMG_TAG_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]*)("[^>]*>)', re.DOTALL)
+_MIME_FOR_EX = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "png": "image/png", "webp": "image/webp"}
+
+
+def _embed_images_as_data_uris(html: str, workdir: Path) -> str:
+    """Replace local image srcs with base64 data URIs read from workdir."""
+
+    def replace(match: re.Match) -> str:
+        prefix, src, suffix = match.group(1), match.group(2), match.group(3)
+        if src.startswith(("data:", "http://", "https://", "file://")):
+            return match.group(0)
+        img_path = (workdir / src).resolve()
+        if not img_path.is_file():
+            log.warning("image not found for embedding: %s", img_path)
+            return match.group(0)
+        try:
+            data = img_path.read_bytes()
+        except OSError as e:
+            log.warning("failed reading %s: %s", img_path, e)
+            return match.group(0)
+        ext = img_path.suffix.lstrip(".").lower() or "jpeg"
+        mime = _MIME_FOR_EX.get(ext, "image/jpeg")
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"{prefix}data:{mime};base64,{b64}{suffix}"
+
+    return _IMG_TAG_RE.sub(replace, html)

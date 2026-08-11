@@ -135,6 +135,7 @@
   .status.info { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
   .status.success { background: rgba(74, 222, 128, 0.12); color: var(--success); border: 1px solid rgba(74, 222, 128, 0.4); }
   .status.error { background: rgba(248, 113, 113, 0.12); color: var(--danger); border: 1px solid rgba(248, 113, 113, 0.4); }
+  .status.warning { background: rgba(251, 191, 36, 0.12); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.4); }
   .preview-frame {
     width: 100%;
     flex: 1;
@@ -167,6 +168,73 @@
     color: var(--text-2);
     font-weight: 600;
     margin-bottom: 10px;
+  }
+  .history-section { margin-top: 24px; }
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .history-item {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .history-item:hover { background: var(--surface-3); }
+  .history-item.active {
+    border-color: var(--primary);
+    background: rgba(255, 77, 109, 0.08);
+  }
+  .history-item .id-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .history-item .hid {
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: monospace;
+  }
+  .history-item .badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .history-item .badge.real {
+    background: rgba(74, 222, 128, 0.18);
+    color: var(--success);
+  }
+  .history-item .badge.placeholder {
+    background: rgba(251, 191, 36, 0.18);
+    color: var(--warning);
+  }
+  .history-item .title {
+    font-size: 13px;
+    color: var(--text-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .history-item .meta {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .history-empty {
+    color: var(--text-3);
+    font-size: 12px;
+    text-align: center;
+    padding: 10px;
   }
 </style>
 </head>
@@ -212,12 +280,19 @@
       </div>
 
       <div class="status" id="status"></div>
+
+      <div class="history-section">
+        <h2 class="section-label">历史预览</h2>
+        <div class="history-list" id="history-list">
+          <div class="history-empty">暂无历史记录</div>
+        </div>
+      </div>
     </aside>
 
     <main>
       <div class="empty-state" id="empty-state">
         在左侧选择主题，点击「生成预览」开始<br>
-        <small>写作约 30-180 秒（调用 LLM）</small>
+        <small>写作约 30-180 秒（调用 LLM）+ 配图</small>
       </div>
       <iframe id="preview-frame" class="preview-frame" style="display:none;" sandbox="allow-same-origin"></iframe>
     </main>
@@ -234,19 +309,14 @@
     const metaEl = $('topic-meta');
     const frame = $('preview-frame');
     const empty = $('empty-state');
+    const historyList = $('history-list');
 
-    let currentTopic = null;
-    let currentTheme = null;
-    let currentHtml = null;
+    // currentPreview: {history_id, topic, theme, html, image_mode}
+    let currentPreview = null;
 
     function showStatus(kind, msg) {
       statusEl.className = 'status show ' + kind;
       statusEl.textContent = msg;
-    }
-
-    function hideStatus() {
-      statusEl.className = 'status';
-      statusEl.textContent = '';
     }
 
     function setPreview(html) {
@@ -261,6 +331,90 @@
       empty.style.display = 'flex';
     }
 
+    function setMeta(p) {
+      metaEl.innerHTML =
+        '<strong>' + p.topic.id + '</strong> · ' +
+        p.topic.title + ' · <strong>' + p.topic.category +
+        '</strong> · theme=' + p.theme;
+    }
+
+    function imageModeBadge(mode) {
+      if (mode === 'real') {
+        return '<span class="badge real">AI</span>';
+      }
+      return '<span class="badge placeholder">占位</span>';
+    }
+
+    function renderHistory(entries) {
+      historyList.innerHTML = '';
+      if (!entries.length) {
+        historyList.innerHTML = '<div class="history-empty">暂无历史记录</div>';
+        return;
+      }
+      for (const e of entries) {
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.dataset.id = String(e.id);
+        if (currentPreview && currentPreview.history_id === e.id) {
+          div.classList.add('active');
+        }
+        div.innerHTML =
+          '<div class="id-row">' +
+            '<span class="hid">#' + e.id + '</span>' +
+            imageModeBadge(e.image_mode) +
+          '</div>' +
+          '<div class="title">' + (e.title || e.topic_id) + '</div>' +
+          '<div class="meta">' +
+            (e.topic_id || '') + ' · ' + (e.theme || '') + ' · ' +
+            (e.created_at || '') +
+          '</div>';
+        div.addEventListener('click', () => loadHistoryEntry(e.id));
+        historyList.appendChild(div);
+      }
+    }
+
+    async function refreshHistory() {
+      try {
+        const resp = await fetch('/api/history');
+        const data = await resp.json();
+        if (resp.ok && data.ok) {
+          renderHistory(data.entries);
+        }
+      } catch (e) {
+        // history is best-effort; ignore network errors
+      }
+    }
+
+    async function loadHistoryEntry(id) {
+      try {
+        const resp = await fetch('/api/history/' + id);
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          showStatus('error', data.error || '加载历史失败');
+          return;
+        }
+        const e = data.entry;
+        currentPreview = {
+          history_id: e.id,
+          topic: {id: e.topic_id, title: e.title, category: e.category},
+          theme: e.theme,
+          html: e.html,
+          image_mode: e.image_mode,
+        };
+        setPreview(e.html);
+        setMeta(currentPreview);
+        const modeText = e.image_mode === 'real' ? 'AI 生图' : '占位图';
+        showStatus('info', '📜 已回看历史 #' + e.id + ' · ' + modeText);
+        btnPublish.disabled = false;
+        // highlight active item
+        for (const it of historyList.querySelectorAll('.history-item')) {
+          it.classList.toggle('active', it.dataset.id === String(e.id));
+        }
+      } catch (e) {
+        showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
+      }
+    }
+
     async function doPreview() {
       const topicId = (topicSelect.value || '').trim();
       const theme = themeInput.value;
@@ -270,7 +424,7 @@
       }
       btnPreview.disabled = true;
       btnPublish.disabled = true;
-      showStatus('info', '✍️  正在写作并渲染预览（调用 LLM，可能需要 30-180 秒）…');
+      showStatus('info', '✍️  正在写作并配图（LLM 30-180 秒，图片另加 10-30 秒）…');
       try {
         const resp = await fetch('/api/preview', {
           method: 'POST',
@@ -282,20 +436,24 @@
           showStatus('error', data.error || '预览失败');
           clearPreview();
           metaEl.innerHTML = '&nbsp;';
-          currentTopic = null;
-          currentHtml = null;
+          currentPreview = null;
+          btnPublish.disabled = true;
           return;
         }
-        currentTopic = data.topic;
-        currentTheme = data.theme;
-        currentHtml = data.html;
+        currentPreview = {
+          history_id: data.history_id,
+          topic: data.topic,
+          theme: data.theme,
+          html: data.html,
+          image_mode: data.image_mode,
+        };
         setPreview(data.html);
-        metaEl.innerHTML =
-          '<strong>' + currentTopic.id + '</strong> · ' +
-          currentTopic.title + ' · <strong>' +
-          currentTopic.category + '</strong> · theme=' + currentTheme;
-        showStatus('success', '✅ 预览已生成。可以点击「推送到微信」提交。');
+        setMeta(currentPreview);
+        const modeText = data.image_mode === 'real' ? 'AI 生图' : '占位图（请配置图片 API key 以使用 AI 生图）';
+        const kind = data.image_mode === 'real' ? 'success' : 'warning';
+        showStatus(kind, '✅ 预览已生成 · ' + modeText);
         btnPublish.disabled = false;
+        await refreshHistory();
       } catch (e) {
         showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
       } finally {
@@ -304,13 +462,12 @@
     }
 
     async function doPublish() {
-      if (!currentTopic) {
-        showStatus('error', '请先生成预览');
+      if (!currentPreview) {
+        showStatus('error', '请先生成预览或从历史中选择');
         return;
       }
-      const topicId = currentTopic.id;
-      const theme = currentTheme;
-      if (!confirm('确认推送到微信草稿箱？\n主题：' + topicId + ' · ' + currentTopic.title)) {
+      if (!confirm('确认推送到微信草稿箱？\n历史 # ' + currentPreview.history_id +
+                  ' · ' + currentPreview.topic.id + ' · ' + currentPreview.topic.title)) {
         return;
       }
       btnPublish.disabled = true;
@@ -320,7 +477,7 @@
         const resp = await fetch('/api/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic_id: topicId, theme: theme }),
+          body: JSON.stringify({ history_id: currentPreview.history_id }),
         });
         const data = await resp.json();
         if (data.ok) {
@@ -345,6 +502,7 @@
 
     btnPreview.addEventListener('click', doPreview);
     btnPublish.addEventListener('click', doPublish);
+    refreshHistory();
   })();
   </script>
 </body>

@@ -15,6 +15,9 @@ optimization-results.tsv
 output/
 !output/.gitkeep
 
+# Web UI runtime state
+webapp/_data/
+
 # Exemplar library (user-specific content)
 references/exemplars/*.md
 references/exemplars/index.yaml
