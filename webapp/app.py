@@ -162,7 +162,7 @@ def logout():
 
 @app.route("/")
 def index():
-    # 把可用主题注入页面，避免前端硬编码。
+    # 把可用主题和语料列表注入页面，避免前端硬编码。
     try:
         sys.path.insert(0, str(TOOLKIT_DIR))
         from theme import list_themes  # type: ignore
@@ -170,7 +170,12 @@ def index():
     except Exception as e:
         print(f"[wechat-studio] failed to list themes: {e}", file=sys.stderr)
         themes = ["terracotta"]
-    return render_template("index.html", themes=themes)
+    topics = [
+        {"id": t.get("id"), "title": t.get("title"), "category": t.get("category")}
+        for t in _load_corpus()
+        if t.get("id")
+    ]
+    return render_template("index.html", themes=themes, topics=topics)
 
 
 @app.route("/api/health")

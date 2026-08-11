@@ -184,25 +184,12 @@
       <h2 class="section-label">主题预览 / 推送</h2>
 
       <div class="form-group">
-        <label for="topic_id">主题 ID</label>
-        <input
-          type="text"
-          id="topic_id"
-          placeholder="kb-001"
-          value="kb-001"
-          autocomplete="off"
-        />
-      </div>
-
-      <div class="form-group">
-        <label for="client">客户端</label>
-        <input
-          type="text"
-          id="client"
-          placeholder="zhulv"
-          value="zhulv"
-          autocomplete="off"
-        />
+        <label for="topic_id">主题</label>
+        <select id="topic_id">
+          {% for t in topics %}
+          <option value="{{ t.id }}" data-category="{{ t.category }}">{{ t.id }} — {{ t.title }}（{{ t.category }}）</option>
+          {% endfor %}
+        </select>
       </div>
 
       <div class="form-group">
@@ -238,8 +225,7 @@
   <script>
   (function () {
     const $ = (id) => document.getElementById(id);
-    const topicInput = $('topic_id');
-    const clientInput = $('client');
+    const topicSelect = $('topic_id');
     const themeInput = $('theme');
     const btnPreview = $('btn-preview');
     const btnPublish = $('btn-publish');
@@ -275,10 +261,10 @@
     }
 
     async function doPreview() {
-      const topicId = (topicInput.value || '').trim();
+      const topicId = (topicSelect.value || '').trim();
       const theme = themeInput.value;
       if (!topicId) {
-        showStatus('error', '请填写主题 ID');
+        showStatus('error', '请选择主题');
         return;
       }
       btnPreview.disabled = true;
@@ -323,8 +309,7 @@
       }
       const topicId = currentTopic.id;
       const theme = currentTheme;
-      const client = (clientInput.value || '').trim() || 'zhulv';
-      if (!confirm('确认推送到微信草稿箱？\n主题：' + topicId + ' · ' + currentTopic.title + '\n客户端：' + client)) {
+      if (!confirm('确认推送到微信草稿箱？\n主题：' + topicId + ' · ' + currentTopic.title)) {
         return;
       }
       btnPublish.disabled = true;
@@ -334,7 +319,7 @@
         const resp = await fetch('/api/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic_id: topicId, theme: theme, client: client }),
+          body: JSON.stringify({ topic_id: topicId, theme: theme }),
         });
         const data = await resp.json();
         if (data.ok) {
@@ -359,9 +344,6 @@
 
     btnPreview.addEventListener('click', doPreview);
     btnPublish.addEventListener('click', doPublish);
-    topicInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') doPreview();
-    });
   })();
   </script>
 </body>
