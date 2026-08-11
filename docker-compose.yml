@@ -23,13 +23,17 @@ services:
       # WeChat credentials (config.yaml references these via ${VAR} syntax).
       - WECHAT_APPID=${WECHAT_APPID:-}
       - WECHAT_SECRET=${WECHAT_SECRET:-}
-      # Image generation providers (used by cli.py image paths; not by
-      # the web preview/publish flow itself, but kept here so the
-      # container can do downstream image work if needed).
+      # Image generation providers (image_gen.py uses these).
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DOUBAO_API_KEY=${DOUBAO_API_KEY:-}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+      # LLM endpoint for the knowledge-track article writer
+      # (Anthropic-compatible Messages API).
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
       - GUNICORN_WORKERS=2
-      - GUNICORN_TIMEOUT=60
+      - GUNICORN_TIMEOUT=300
       - GUNICORN_GRACEFUL_TIMEOUT=10
       - GUNICORN_KEEPALIVE=5
       - GUNICORN_MAX_REQUESTS=500

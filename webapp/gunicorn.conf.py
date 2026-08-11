@@ -12,9 +12,11 @@ bind = "0.0.0.0:9997"
 workers = int(os.environ.get("GUNICORN_WORKERS", "2"))
 worker_class = "sync"
 
-# Timeout: 60s is plenty — preview is a few seconds, publish includes
-# WeChat API upload (token + image upload) and may take 10-30s.
-timeout = int(os.environ.get("GUNICORN_TIMEOUT", "60"))
+# Timeout: 300s covers the slowest observed path — the LLM write phase
+# alone can run 2-3 minutes (large output + occasional retry). The image-
+# gen + preview-render phase is another 30-60s, and publish is 10-30s.
+# Anything slower than 5 min is a real hang and the worker is recycled.
+timeout = int(os.environ.get("GUNICORN_TIMEOUT", "300"))
 graceful_timeout = int(os.environ.get("GUNICORN_GRACEFUL_TIMEOUT", "10"))
 keepalive = int(os.environ.get("GUNICORN_KEEPALIVE", "5"))
 
