@@ -90,6 +90,18 @@ python3 {skill_dir}/scripts/seo_keywords.py --json {从热点标题中提取的3
 - **自动模式（默认）**：直接选综合评分最高的，继续。
 - **交互模式**：输出 10 个选题，等用户选择。
 
+### Step 3.1: Blacklist 硬拦截
+
+选定主题（来自 Step 2 主题库）后, **必须**对生成的标题执行 blacklist 验证:
+
+```bash
+python3 {skill_dir}/scripts/check_blacklist.py "{候选标题}" --client {client}
+```
+
+- 命中 → 强制重生成 (最多 2 次), 每次重生成后再次验证
+- 2 次仍命中 → 输出最强改写建议 (`suggestion` 字段), 自动模式放行 + warn; 交互模式让用户决策
+- 脚本报错 → 静默通过 (warn-and-pass), 不阻塞后续流程
+
 ---
 
 ### Step 3.5: 框架选择
@@ -142,6 +154,21 @@ python3 {skill_dir}/scripts/seo_keywords.py --json {从热点标题中提取的3
 6. 完读率优化
 
 覆盖保存终稿。自动模式下选评分最高的标题作为最终标题。
+
+### Step 5.1: Blacklist 拦截 + 三模式校验
+
+生成 3 个备选标题后:
+
+1. **三模式校验**: 3 个标题必须分别属于不同模式 (数字 / 反直觉 / 痛点), 不允许同模式重复。详见 `references/seo-rules.md` "三模式强制" 章节。
+2. **Blacklist 拦截**: 对每个标题执行:
+
+```bash
+python3 {skill_dir}/scripts/check_blacklist.py "{候选标题1}" --client {client}
+python3 {skill_dir}/scripts/check_blacklist.py "{候选标题2}" --client {client}
+python3 {skill_dir}/scripts/check_blacklist.py "{候选标题3}" --client {client}
+```
+
+任一标题命中 → 该标题淘汰, 重新生成同模式标题 (如淘汰的是反直觉模式…).
 
 ---
 
@@ -306,6 +333,24 @@ python3 {skill_dir}/toolkit/cli.py preview {markdown_path} \
 ```
 
 这条记录会被下次运行的 Step 2.5 读取，用于选题去重和偏好分析。
+
+### Step 7.6: 历史经验沉淀 (一次性 onboarding)
+
+新客户或 history.yaml stats 缺失的存量客户, 跑一次:
+
+```bash
+# 抽取高频 pattern, 生成 references/topic-patterns.md
+python3 {skill_dir}/scripts/build_topic_patterns.py --client {client} --min-frequency 3
+
+# 从旧 notes 字段回填 quality_signals
+python3 {skill_dir}/scripts/backfill_signals.py --client {client}
+```
+
+输出 `references/topic-patterns.md` 会在下次运行 Step 3 时由 Agent 自动加载。
+
+**何时重跑**:
+- 新增 ≥ 20 篇文章后, 重跑 `build_topic_patterns.py` 更新 pattern 库
+- 不需要重跑 `backfill_signals.py` (它只处理历史 notes)
 
 ---
 
