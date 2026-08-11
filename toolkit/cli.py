@@ -72,6 +72,16 @@ def load_config() -> dict:
     return {}
 
 
+DISCLAIMER = "\n\n---\n\n> **声明**：本文为逻辑梳理，非学术研究。引用细节可能存在简化。\n"
+
+
+def inject_disclaimer(markdown: str) -> str:
+    """Append academic disclaimer. Idempotent."""
+    if DISCLAIMER.strip() in markdown:
+        return markdown
+    return markdown.rstrip() + DISCLAIMER
+
+
 def cmd_preview(args):
     """Generate HTML preview and open in browser.
     
@@ -265,6 +275,7 @@ def cmd_publish(args):
         sys.exit(1)
 
     md_text = Path(args.input).read_text(encoding='utf-8')
+    md_text = inject_disclaimer(md_text)
     xiaohu_themes = list_xiaohu_themes()
     use_xiaohu = theme_name in xiaohu_themes
 
