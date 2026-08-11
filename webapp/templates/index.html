@@ -217,7 +217,7 @@
     <main>
       <div class="empty-state" id="empty-state">
         在左侧选择主题，点击「生成预览」开始<br>
-        <small>写作约 30-90 秒，配图约 30-60 秒</small>
+        <small>写作约 30-180 秒（调用 LLM）</small>
       </div>
       <iframe id="preview-frame" class="preview-frame" style="display:none;" sandbox="allow-same-origin"></iframe>
     </main>
@@ -235,8 +235,9 @@
     const frame = $('preview-frame');
     const empty = $('empty-state');
 
-    let currentSession = null;  // {token, topic, theme, html}
-    let renderInFlight = false;
+    let currentTopic = null;
+    let currentTheme = null;
+    let currentHtml = null;
 
     function showStatus(kind, msg) {
       statusEl.className = 'status show ' + kind;
@@ -260,13 +261,6 @@
       empty.style.display = 'flex';
     }
 
-    function setMeta(topic, theme) {
-      metaEl.innerHTML =
-        '<strong>' + topic.id + '</strong> · ' +
-        topic.title + ' · <strong>' +
-        topic.category + '</strong> · theme=' + theme;
-    }
-
     async function doPreview() {
       const topicId = (topicSelect.value || '').trim();
       const theme = themeInput.value;
@@ -276,74 +270,47 @@
       }
       btnPreview.disabled = true;
       btnPublish.disabled = true;
-      clearPreview();
-      metaEl.innerHTML = '&nbsp;';
-      currentSession = null;
-
-      // 第 1 段：调用 LLM 写文章（30-90s）
-      showStatus('info', '✍️  正在写作（调用 LLM，可能需要 30-90 秒）…');
-      let writeData;
+      showStatus('info', '✍️  正在写作并渲染预览（调用 LLM，可能需要 30-180 秒）…');
       try {
         const resp = await fetch('/api/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ topic_id: topicId, theme: theme }),
         });
-        writeData = await resp.json();
-        if (!resp.ok || !writeData.ok) {
-          showStatus('error', '写作失败：' + (writeData.error || '未知错误'));
-          return;
-        }
-      } catch (e) {
-        showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
-        return;
-      }
-
-      currentSession = {
-        token: writeData.session_token,
-        topic: writeData.topic,
-        theme: theme,
-        html: null,
-      };
-      setMeta(writeData.topic, theme);
-      showStatus('success',
-        '✅ 写作完成（' + writeData.article_chars + ' 字）\n' +
-        '🎨 正在生成配图并渲染预览…');
-
-      // 第 2 段：生成图片 + 渲染预览（30-60s）
-      renderInFlight = true;
-      try {
-        const resp = await fetch('/api/preview/render', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_token: writeData.session_token }),
-        });
         const data = await resp.json();
         if (!resp.ok || !data.ok) {
-          showStatus('error', '配图/渲染失败：' + (data.error || '未知错误'));
-          currentSession = null;
+          showStatus('error', data.error || '预览失败');
+          clearPreview();
+          metaEl.innerHTML = '&nbsp;';
+          currentTopic = null;
+          currentHtml = null;
           return;
         }
-        currentSession.html = data.html;
+        currentTopic = data.topic;
+        currentTheme = data.theme;
+        currentHtml = data.html;
         setPreview(data.html);
-        showStatus('success',
-          '✅ 预览已生成（' + data.image_count + ' 张配图）。可点击「推送到微信」提交。');
+        metaEl.innerHTML =
+          '<strong>' + currentTopic.id + '</strong> · ' +
+          currentTopic.title + ' · <strong>' +
+          currentTopic.category + '</strong> · theme=' + currentTheme;
+        showStatus('success', '✅ 预览已生成。可以点击「推送到微信」提交。');
         btnPublish.disabled = false;
       } catch (e) {
         showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
-        currentSession = null;
       } finally {
-        renderInFlight = false;
+        btnPreview.disabled = false;
       }
     }
 
     async function doPublish() {
-      if (!currentSession || !currentSession.html) {
+      if (!currentTopic) {
         showStatus('error', '请先生成预览');
         return;
       }
-      const session = currentSession;
-      if (!confirm('确认推送到微信草稿箱？\n主题：' + session.topic.id + ' · ' + session.topic.title)) {
+      const topicId = currentTopic.id;
+      const theme = currentTheme;
+      if (!confirm('确认推送到微信草稿箱？\n主题：' + topicId + ' · ' + currentTopic.title)) {
         return;
       }
       btnPublish.disabled = true;
@@ -353,7 +320,7 @@
         const resp = await fetch('/api/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_token: session.token }),
+          body: JSON.stringify({ topic_id: topicId, theme: theme }),
         });
         const data = await resp.json();
         if (data.ok) {

@@ -4,17 +4,12 @@
 
 微信公众号工作台，提供：
   - APP_PASSWORD 鉴权（HMAC cookie，30 天）
-  - 主题选择 → 写文章（LLM）→ 配图 → 渲染预览
+  - 主题选择 → LLM 写文章 → 渲染预览
   - 推送按钮 → cli.py publish
 
-数据流（按用户点击节奏分两段，避免单次请求过长）：
-  1. POST /api/preview       → LLM 写作（30-90s）
-  2. POST /api/preview/render → 图片生成 + cli.py preview（30-60s）
-  3. POST /api/publish       → cli.py publish（10-30s）
-
-每次「写文章」都会分配一个 session token（HMAC 后的 cookie 前缀），
-后续 /api/preview/render 与 /api/publish 用该 token 取回 workdir。
-workdir 由 tempdir 持有，pod 重启或换 cookie 即失效 — 单用户场景可接受。
+数据流：
+  1. 浏览器 POST /api/preview  →  write_article (LLM, 30-180s) → cli.py preview → 返回 HTML
+  2. 浏览器 POST /api/publish  →  cli.py publish → 返回 stdout/stderr
 
 cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
@@ -25,22 +20,17 @@ import hmac
 import json
 import logging
 import os
-import secrets
 import subprocess
 import sys
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import yaml
 from flask import Flask, jsonify, redirect, render_template, request
 
-from .render import (
-    generate_images_in_workdir,
-    render_preview_html,
-    write_article_to_workdir,
-)
+from .render import render_preview_html, write_article_to_workdir
 
 # ── 路径常量 ─────────────────────────────────────────────────────────
 # webapp/app.py → 父目录即 skill 根
@@ -60,7 +50,7 @@ COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 天
 # 公开端点：登录页和健康检查。静态资源在 /static 前缀。
 PUBLIC_PATHS = {"/login", "/api/health"}
 
-# cli.py 子进程超时（秒）。preview 通常 < 5s，publish 含外网上传 60s 足够。
+# cli.py 子进程超时（秒）。publish 含外网上传 60s 足够。
 SUBPROCESS_TIMEOUT = int(os.environ.get("SUBPROCESS_TIMEOUT", "60"))
 
 # ── Flask 应用 ───────────────────────────────────────────────────────
@@ -72,13 +62,6 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("wechat-studio")
-
-# ── 写作会话状态 ──────────────────────────────────────────────────────
-# 每次「写文章」生成一个 session_token，绑定 workdir + topic + theme。
-# 同一 cookie 内串行复用；新文章会覆盖旧 workdir（旧 workdir 不主动删，
-# 留给 tempdir 清理机制回收 — 单用户 + bind-mount 数据可重建）。
-SessionState = Dict[str, Any]
-SESSIONS: Dict[str, SessionState] = {}
 
 
 # ── 工具函数 ─────────────────────────────────────────────────────────
@@ -130,14 +113,6 @@ def _run_cli(args: List[str], env: Dict[str, str],
         "stdout": proc.stdout or "",
         "stderr": proc.stderr or "",
     }
-
-
-def _session_token() -> str:
-    """稳定的 per-user session id：取 cookie value 前 16 字节（HMAC 后）。"""
-    cookie = request.cookies.get(COOKIE_NAME, "")
-    if cookie:
-        return hashlib.sha256(cookie.encode()).hexdigest()[:16]
-    return secrets.token_hex(8)
 
 
 # ── 鉴权钩子 ─────────────────────────────────────────────────────────
@@ -214,18 +189,18 @@ def health():
         {
             "ok": True,
             "app": "wechat-studio",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "corpus_size": len(_load_corpus()),
         }
     )
 
 
-# ── 预览：分两段，避免单次请求超 120s ─────────────────────────────────
 @app.route("/api/preview", methods=["POST"])
-def api_preview_write():
-    """第 1 段：调用 LLM 写文章（30-90s）。
+def api_preview():
+    """Body: {topic_id, theme} → write_article → cli preview → HTML。
 
-    Body: {topic_id, theme} → {ok, session_token, article_chars}
+    LLM 调用通常 30-180 秒；超过 gunicorn 超时（默认 300s）会被 worker
+    回收并以 502/504 形式呈现给浏览器。
     """
     data = request.get_json(force=True, silent=True) or {}
     topic_id = (data.get("topic_id") or "").strip()
@@ -241,78 +216,24 @@ def api_preview_write():
                         "phase": "input"}), 404
 
     try:
-        workdir, image_rels = write_article_to_workdir(topic)
+        workdir, md_text = write_article_to_workdir(topic)
     except RuntimeError as e:
         log.error("LLM write failed: %s", e)
         return jsonify({"ok": False, "error": str(e),
                         "phase": "write"}), 500
 
-    token = _session_token()
-    SESSIONS[token] = {
-        "workdir": workdir,
-        "topic": topic,
-        "theme": theme,
-        "image_rels": image_rels,
-        "html": None,  # filled in by /api/preview/render
-    }
-    article_chars = len((workdir / "article.md").read_text(encoding="utf-8"))
-    log.info("wrote article %s → %s (%d chars)", topic_id, workdir, article_chars)
-
-    return jsonify(
-        {
-            "ok": True,
-            "session_token": token,
-            "article_chars": article_chars,
-            "topic": {
-                "id": topic.get("id"),
-                "title": topic.get("title"),
-                "category": topic.get("category"),
-            },
-        }
-    )
-
-
-@app.route("/api/preview/render", methods=["POST"])
-def api_preview_render():
-    """第 2 段：生成图片 + 渲染预览（30-60s）。
-
-    Body: {session_token} → {ok, html, image_count}
-    """
-    data = request.get_json(force=True, silent=True) or {}
-    token = (data.get("session_token") or "").strip()
-    if not token or token not in SESSIONS:
-        return jsonify({"ok": False,
-                        "error": "无效或已过期的 session_token，请重新生成预览",
-                        "phase": "session"}), 400
-
-    state = SESSIONS[token]
-    workdir: Path = state["workdir"]
-    topic: Dict[str, Any] = state["topic"]
-    theme: str = state["theme"]
-    image_rels: List[str] = state["image_rels"]
-
-    try:
-        generate_images_in_workdir(workdir, topic, image_rels)
-    except Exception as e:
-        log.error("image generation failed: %s", e)
-        return jsonify({"ok": False,
-                        "error": f"图片生成失败：{e}",
-                        "phase": "images"}), 500
-
     try:
         html = render_preview_html(workdir, theme)
     except Exception as e:
         log.error("preview render failed: %s", e)
-        return jsonify({"ok": False,
-                        "error": f"预览渲染失败：{e}",
+        return jsonify({"ok": False, "error": f"预览渲染失败：{e}",
                         "phase": "render"}), 500
 
-    state["html"] = html
+    log.info("preview %s → %d chars HTML", topic_id, len(html))
     return jsonify(
         {
             "ok": True,
             "html": html,
-            "image_count": len(image_rels),
             "topic": {
                 "id": topic.get("id"),
                 "title": topic.get("title"),
@@ -326,35 +247,37 @@ def api_preview_render():
 # ── 推送 ─────────────────────────────────────────────────────────────
 @app.route("/api/publish", methods=["POST"])
 def api_publish():
-    """Body: {session_token} → cli.py publish → stdout/stderr。
+    """Body: {topic_id, theme} → synthesize md → cli publish → stdout/stderr。
 
-    复用最近一次预览产生的 workdir。workdir 内的 article.md 仍保留
-    相对图片路径，cli.py publish 会自动上传图片到微信并替换 src。
+    注意：这里不向 cli.py 传 --appid/--secret — 让 config.yaml 的 ${VAR}
+    占位符展开流程（已在本机 env 中提供 WECHAT_APPID / WECHAT_SECRET）
+    完成凭证注入。
     """
     data = request.get_json(force=True, silent=True) or {}
-    token = (data.get("session_token") or "").strip()
-    if not token or token not in SESSIONS:
-        return jsonify({"ok": False,
-                        "error": "无效或已过期的 session_token，请先生成预览",
-                        "phase": "session"}), 400
+    topic_id = (data.get("topic_id") or "").strip()
+    theme = (data.get("theme") or "terracotta").strip() or "terracotta"
 
-    state = SESSIONS[token]
-    workdir: Path = state["workdir"]
-    theme: str = state["theme"]
-    topic: Dict[str, Any] = state["topic"]
+    if not topic_id:
+        return jsonify({"ok": False, "error": "topic_id 不能为空"}), 400
+
+    topic = _find_topic(topic_id)
+    if not topic:
+        return jsonify({"ok": False, "error": f"未找到主题 {topic_id}"}), 404
+
+    try:
+        workdir, _ = write_article_to_workdir(topic)
+    except RuntimeError as e:
+        log.error("LLM write failed for publish: %s", e)
+        return jsonify({"ok": False, "error": str(e),
+                        "phase": "write"}), 500
+
     md_path = workdir / "article.md"
-
-    if not md_path.exists():
-        return jsonify({"ok": False,
-                        "error": "article.md 缺失 — workdir 可能已被清理",
-                        "phase": "session"}), 500
-
     # 切到 workdir 作为 cwd 父级 — cli.py 解析相对图片路径时使用
     # md 文件所在目录，避免污染 SKILL_DIR。
     old_cwd = os.getcwd()
     try:
         os.chdir(str(workdir))
-        result = _run_cli(
+        cli_result = _run_cli(
             ["publish", str(md_path), "--theme", theme],
             env=os.environ.copy(),
         )
@@ -363,10 +286,10 @@ def api_publish():
 
     return jsonify(
         {
-            "ok": result["ok"],
-            "returncode": result["returncode"],
-            "stdout": result["stdout"],
-            "stderr": result["stderr"],
+            "ok": cli_result["ok"],
+            "returncode": cli_result["returncode"],
+            "stdout": cli_result["stdout"],
+            "stderr": cli_result["stderr"],
             "topic": {
                 "id": topic.get("id"),
                 "title": topic.get("title"),
