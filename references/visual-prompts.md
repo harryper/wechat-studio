@@ -14,7 +14,7 @@
 
 ### 核心思想
 
-- **先定故事瞬间，再定风格**：先说清“这一秒发生了什么”，再谈学术概念图/学术插画/低饱和度（与 SKILL.md Step 6 默认参数“画面倾向”一致）。
+- **先定故事瞬间，再定风格**：先说清“这一秒发生了什么”，再谈学术概念图 / 学术插画 / 单色或低饱和度 / 概念体现物主体 / 无可见文字（与 SKILL.md Step 6 默认参数“画面倾向”一致）。
 - **先定主体与冲突，再定审美**：主体是谁、在做什么、和什么形成反差，必须先写。
 - **用镜头语言替代空泛修辞**：少写“高级感/氛围感/科技感”，多写 `35mm`, `eye-level`, `shallow depth of field`, `mixed color temperature`, `foreground obstruction`。
 - **把不完美写具体**：不要只写“不完美构图”，要写成 `slight motion blur on passersby`, `uneven sidewalk reflection`, `sweat on temple`, `creased shopping bag` 这种具体瑕疵。
