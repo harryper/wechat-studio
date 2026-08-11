@@ -37,58 +37,36 @@ description: |
 
 从 style.yaml 中提取：`topics`、`tone`、`voice`、`blacklist`、`theme`、`cover_style`、`author`、`content_style`。
 
-如果用户直接给了选题（如"写一篇关于 AI Agent 的公众号文章"），跳过 Step 2-3，直接进入 Step 3.5。
+如果用户直接给了选题（如"写一篇关于 AI Agent 的公众号文章"），跳过 Step 2，直接进入 Step 3。
 
 ---
 
-### Step 2: 热点抓取
+### Step 2: 主题库选题 (Topic Library Selection)
 
 ```bash
-python3 {skill_dir}/scripts/fetch_hotspots.py --limit 30
+python3 {skill_dir}/scripts/load_corpus.py --client {client} --dry-run
 ```
 
-脚本返回 JSON 到 stdout，包含多平台热点（微博、头条、百度）。
+脚本从 `references/knowledge-corpus.yaml` 按顺序轮转选择未写过的主题（用 `clients/{client}/history.yaml` 去重）。
 
-为每条热点标注所属领域和可创作性评分（1-10）。
-
-**降级**：如果脚本报错或返回空列表，用 WebSearch 搜索 "今日热点 {topics中的第一个垂类}"。
-
----
-
-### Step 2.5: 历史读取 + SEO 数据
-
-```
-读取: {skill_dir}/clients/{client}/history.yaml
-```
-
-提取已发布文章的 topic_keywords 列表，用于 Step 3 去重。
-
-如果 history.yaml 中有带 stats 的文章，提取表现最好的文章特征（框架类型、标题风格），作为偏好参考。
-
-然后对热点中的关键词做 SEO 评分：
-
-```bash
-python3 {skill_dir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5个关键词}
-```
-
-脚本返回每个关键词的 SEO 评分（0-10）和相关关键词，用于 Step 3 的 SEO 友好度评估。
+- 主题库耗尽告警：已用比例 ≥ 80% 时输出提示
+- 100% 已用：自动从顶部循环
+- 失败：YAML 损坏时 warn + 走 LLM 自由生成
 
 ---
 
 ### Step 3: 选题生成
 
-```
-读取: {skill_dir}/references/topic-selection.md
-```
+读取 `references/knowledge-corpus.yaml`（已通过 Step 2 选定的当前主题）。
 
-按评估规则生成 10 个选题，每个含标题、评分、点击率潜力、SEO 友好度、推荐框架。
+读取 `references/topic-selection.md` → 评估 key_points 质量
+读取 `references/frameworks-academic.md` → 选框架
 
-**去重**：对比 history.yaml 中的 topic_keywords，如果某个选题的核心关键词在最近 7 天内已写过，降低其评分或标注"近期已覆盖"。
-
-**SEO 数据化**：用 Step 2.5 的 seo_keywords.py 输出替代纯 LLM 猜测。SEO 友好度直接引用脚本返回的 seo_score。
-
-- **自动模式（默认）**：直接选综合评分最高的，继续。
-- **交互模式**：输出 10 个选题，等用户选择。
+框架选择逻辑：
+- 主题含"起源"、"演变"、"提出" → 框架 1（起源-演变-影响）
+- 主题含"原理"、"机制"、"定律" → 框架 2（原理-证据-应用）
+- 主题含"实验"、"研究"、"测试" → 框架 3（经典实验-当代启示）
+- 都不匹配 → 默认框架 1
 
 ### Step 3.1: Blacklist 硬拦截
 
@@ -104,29 +82,17 @@ python3 {skill_dir}/scripts/check_blacklist.py "{候选标题}" --client {client
 
 ---
 
-### Step 3.5: 框架选择
-
-```
-读取: {skill_dir}/references/frameworks.md
-```
-
-为选定的选题生成 5 套框架（痛点型/故事型/清单型/对比型/热点解读型），每套含开头策略、段落大纲、金句预埋、结尾引导、推荐指数。
-
-- **自动模式（默认）**：直接选推荐指数最高的框架，继续。
-- **交互模式**：输出 5 套框架，等用户选择。
-
----
-
 ### Step 4: 文章写作
 
 ```
+读取: {skill_dir}/references/frameworks-academic.md（按框架骨架）
 读取: {skill_dir}/references/writing-guide.md
 读取: {skill_dir}/clients/{client}/playbook.md（如果存在）
 ```
 
 按选定框架 + writing-guide.md 规范写文章：
 - H1 标题（20-28 字，converter 自动提取为微信标题）
-- 字数 1500-2500
+- 字数 2500-4000（学术派更长）
 - 按框架大纲组织结构，在金句落点放精炼总结句
 - 不插配图占位符（Step 6 自动分析插入）
 - 风格遵循 style.yaml 的 tone、voice、content_style
@@ -155,12 +121,13 @@ python3 {skill_dir}/scripts/check_blacklist.py "{候选标题}" --client {client
 
 覆盖保存终稿。自动模式下选评分最高的标题作为最终标题。
 
-### Step 5.1: Blacklist 拦截 + 三模式校验
+### Step 5.1: 标题校验 + Blacklist 拦截
 
 生成 3 个备选标题后:
 
-1. **三模式校验**: 3 个标题必须分别属于不同模式 (数字 / 反直觉 / 痛点), 不允许同模式重复。详见 `references/seo-rules.md` "三模式强制" 章节。
-2. **Blacklist 拦截**: 对每个标题执行:
+1. **学术定义式**: 3 个标题均为学术定义式（副标题 + 主标题），允许 1-2 个变体（裁掉副标题 / 更精炼）。
+2. **Disclaimer 强制**: 文章末尾由 `toolkit/cli.py publish` 自动追加 "本文为逻辑梳理，非学术研究"——不可关闭。
+3. **Blacklist 拦截**: 对每个标题执行:
 
 ```bash
 python3 {skill_dir}/scripts/check_blacklist.py "{候选标题1}" --client {client}
@@ -168,7 +135,7 @@ python3 {skill_dir}/scripts/check_blacklist.py "{候选标题2}" --client {clien
 python3 {skill_dir}/scripts/check_blacklist.py "{候选标题3}" --client {client}
 ```
 
-任一标题命中 → 该标题淘汰, 重新生成同模式标题 (如淘汰的是反直觉模式…).
+任一标题命中 → 该标题淘汰, 重新生成一个学术定义式标题。
 
 ---
 
@@ -239,7 +206,7 @@ python3 {skill_dir}/scripts/check_blacklist.py "{候选标题3}" --client {clien
 - 输出格式固定为 PNG；MiniMax 不传 `size`，OpenAI 不传 `aspectRatio`，两者都不要传 `outputCompression`。
 - 不要在未验证前用 `count=4` 合并生成。封面单独生成；内文图 2-3 张优先并发生成，但每张都用独立调用/独立结果保存。
 - 明确约束：`no visible text`、`no watermark`
-- 画面倾向：更亮、更饱和、纪实摄影、抓拍感、轻微不完美构图，降低 AI 味
+- 画面倾向：学术概念图 / 学术插画 / 单色或低饱和度 / 概念体现物主体 / 无可见文字
 - 写法倾向：优先使用 **具体场景 + 具体动作 + 具体镜头 + 具体材质瑕疵**，而不是大段抽象风格词
 - 若客户级视觉文件存在，以其中的封面/内文模板优先，不要只按通用模板自由发挥
 
@@ -332,7 +299,7 @@ python3 {skill_dir}/toolkit/cli.py preview {markdown_path} \
   stats: null  # 由 fetch_stats.py 后续回填
 ```
 
-这条记录会被下次运行的 Step 2.5 读取，用于选题去重和偏好分析。
+这条记录会被下次运行的 Step 2 读取，用于主题去重和偏好分析。
 
 ### Step 7.6: 历史经验沉淀 (一次性 onboarding)
 
@@ -396,7 +363,7 @@ python3 {skill_dir}/scripts/fetch_stats.py --client {client} --days 7
 - 哪篇表现不好？可能的原因？
 - 对后续选题/标题/框架的调整建议
 
-这些分析会影响下次运行时 Step 2.5 的偏好参考。
+这些分析会影响下次运行时 Step 2 的偏好参考。
 
 ---
 
