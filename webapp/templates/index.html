@@ -220,9 +220,6 @@
     color: var(--warning);
   }
   .history-item .delete-btn {
-    position: absolute;
-    top: 4px;
-    right: 6px;
     background: transparent;
     border: none;
     color: var(--text-3);
@@ -231,10 +228,9 @@
     padding: 2px 6px;
     border-radius: 4px;
     cursor: pointer;
-    opacity: 0.6;
+    opacity: 0.7;
     transition: all 0.15s;
   }
-  .history-item { position: relative; }
   .history-item .delete-btn:hover {
     color: var(--danger);
     background: rgba(248, 113, 113, 0.12);
@@ -410,13 +406,13 @@
           '<div class="id-row">' +
             '<span class="hid">#' + e.id + '</span>' +
             imageModeBadge(e.image_mode) +
+            '<button class="delete-btn" data-id="' + e.id + '" title="删除历史 #' + e.id + '">×</button>' +
           '</div>' +
           '<div class="title">' + (e.title || e.topic_id) + '</div>' +
           '<div class="meta">' +
             (e.topic_id || '') + ' · ' + (e.theme || '') + ' · ' +
             (e.created_at || '') +
-          '</div>' +
-          '<button class="delete-btn" data-id="' + e.id + '" title="删除">×</button>';
+          '</div>';
         div.querySelector('.delete-btn').addEventListener('click', (ev) => {
           ev.stopPropagation();
           deleteHistory(e.id);
