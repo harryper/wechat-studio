@@ -319,10 +319,37 @@
       statusEl.textContent = msg;
     }
 
-    function setPreview(html) {
+    function setPreview(htmlUrl, restoreScroll) {
       frame.style.display = 'block';
       empty.style.display = 'none';
-      frame.srcdoc = html;
+      frame.src = htmlUrl;          // was: frame.srcdoc = html
+      if (restoreScroll !== undefined) {
+        frame.onload = () => {
+          writeIframeScroll(restoreScroll);
+          frame.onload = null;
+        };
+        setTimeout(() => {
+          if (frame.onload) {
+            writeIframeScroll(restoreScroll);
+            frame.onload = null;
+          }
+        }, 50);
+      } else {
+        frame.onload = null;
+      }
+    }
+
+    function readIframeScroll() {
+      const doc = frame.contentDocument;
+      if (!doc) return 0;
+      return doc.documentElement.scrollTop || doc.body.scrollTop || 0;
+    }
+
+    function writeIframeScroll(y) {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      doc.documentElement.scrollTop = y;
+      doc.body.scrollTop = y;
     }
 
     function clearPreview() {
@@ -394,14 +421,16 @@
           return;
         }
         const e = data.entry;
+        const prevId = currentPreview ? currentPreview.history_id : null;
         currentPreview = {
           history_id: e.id,
           topic: {id: e.topic_id, title: e.title, category: e.category},
           theme: e.theme,
-          html: e.html,
+          html_url: data.html_url,
           image_mode: e.image_mode,
         };
-        setPreview(e.html);
+        const restore = prevId === e.id ? readIframeScroll() : 0;
+        setPreview(data.html_url, restore);
         setMeta(currentPreview);
         const modeText = e.image_mode === 'real' ? 'AI 生图' : '占位图';
         showStatus('info', '📜 已回看历史 #' + e.id + ' · ' + modeText);
@@ -444,10 +473,10 @@
           history_id: data.history_id,
           topic: data.topic,
           theme: data.theme,
-          html: data.html,
+          html_url: data.html_url,
           image_mode: data.image_mode,
         };
-        setPreview(data.html);
+        setPreview(data.html_url, undefined);  // reset scroll on new preview
         setMeta(currentPreview);
         const modeText = data.image_mode === 'real' ? 'AI 生图' : '占位图（请配置图片 API key 以使用 AI 生图）';
         const kind = data.image_mode === 'real' ? 'success' : 'warning';
