@@ -37,84 +37,62 @@ description: |
 
 从 style.yaml 中提取：`topics`、`tone`、`voice`、`blacklist`、`theme`、`cover_style`、`author`、`content_style`。
 
-如果用户直接给了选题（如"写一篇关于 AI Agent 的公众号文章"），跳过 Step 2-3，直接进入 Step 3.5。
+如果用户直接给了选题（如"写一篇关于 AI Agent 的公众号文章"），跳过 Step 2，直接进入 Step 3。
 
 ---
 
-### Step 2: 热点抓取
+### Step 2: 主题库选题 (Topic Library Selection)
 
 ```bash
-python3 {baseDir}/scripts/fetch_hotspots.py --limit 30
+python3 {baseDir}/scripts/load_corpus.py --client {client} --dry-run
 ```
 
-脚本返回 JSON 到 stdout，包含多平台热点（微博、头条、百度）。
+脚本从 `references/knowledge-corpus.yaml` 按顺序轮转选择未写过的主题（用 `clients/{client}/history.yaml` 去重）。
 
-为每条热点标注所属领域和可创作性评分（1-10）。
-
-**降级**：如果脚本报错或返回空列表，用 web_search 搜索 "今日热点 {topics中的第一个垂类}"。
-
----
-
-### Step 2.5: 历史读取 + SEO 数据
-
-```
-读取: {baseDir}/clients/{client}/history.yaml
-```
-
-提取已发布文章的 topic_keywords 列表，用于 Step 3 去重。
-
-如果 history.yaml 中有带 stats 的文章，提取表现最好的文章特征（框架类型、标题风格），作为偏好参考。
-
-然后对热点中的关键词做 SEO 评分：
-
-```bash
-python3 {baseDir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5个关键词}
-```
-
-脚本返回每个关键词的 SEO 评分（0-10）和相关关键词，用于 Step 3 的 SEO 友好度评估。
+- 主题库耗尽告警：已用比例 ≥ 80% 时输出提示
+- 100% 已用：自动从顶部循环
+- 失败：YAML 损坏时 warn + 走 LLM 自由生成
 
 ---
 
 ### Step 3: 选题生成
 
-```
-读取: {baseDir}/references/topic-selection.md
-```
+读取 `references/knowledge-corpus.yaml`（已通过 Step 2 选定的当前主题）。
 
-按评估规则生成 10 个选题，每个含标题、评分、点击率潜力、SEO 友好度、推荐框架。
+读取 `references/topic-selection.md` → 评估 key_points 质量
+读取 `references/frameworks-academic.md` → 选框架
 
-**去重**：对比 history.yaml 中的 topic_keywords，如果某个选题的核心关键词在最近 7 天内已写过，降低其评分或标注"近期已覆盖"。
+框架选择逻辑：
+- 主题含"起源"、"演变"、"提出" → 框架 1（起源-演变-影响）
+- 主题含"原理"、"机制"、"定律" → 框架 2（原理-证据-应用）
+- 主题含"实验"、"研究"、"测试" → 框架 3（经典实验-当代启示）
+- 都不匹配 → 默认框架 1
 
-**SEO 数据化**：用 Step 2.5 的 seo_keywords.py 输出替代纯 LLM 猜测。SEO 友好度直接引用脚本返回的 seo_score。
+### Step 3.1: Blacklist 硬拦截
 
-- **自动模式（默认）**：直接选综合评分最高的，继续。
-- **交互模式**：输出 10 个选题，等用户选择。
+选定主题（来自 Step 2 主题库）后, **必须**对生成的标题执行 blacklist 验证:
 
----
-
-### Step 3.5: 框架选择
-
-```
-读取: {baseDir}/references/frameworks.md
+```bash
+python3 {baseDir}/scripts/check_blacklist.py "{候选标题}" --client {client}
 ```
 
-为选定的选题生成 5 套框架（痛点型/故事型/清单型/对比型/热点解读型），每套含开头策略、段落大纲、金句预埋、结尾引导、推荐指数。
-
-- **自动模式（默认）**：直接选推荐指数最高的框架，继续。
-- **交互模式**：输出 5 套框架，等用户选择。
+- 命中 → 强制重生成 (最多 2 次), 每次重生成后再次验证
+- 2 次仍命中 → 输出最强改写建议 (`suggestion` 字段), 自动模式放行 + warn; 交互模式让用户决策
+- 脚本报错 → 静默通过 (warn-and-pass), 不阻塞后续流程
 
 ---
 
 ### Step 4: 文章写作
 
 ```
+读取: {baseDir}/references/frameworks-academic.md（按框架骨架）
 读取: {baseDir}/references/writing-guide.md
 读取: {baseDir}/clients/{client}/playbook.md（如果存在）
 ```
 
 按选定框架 + writing-guide.md 规范写文章：
 - H1 标题（20-28 字，converter 自动提取为微信标题）
-- 字数 1500-2500
+- 字数 2500-4000（学术派更长）
 - 按框架大纲组织结构，在金句落点放精炼总结句
 - 不插配图占位符（Step 6 自动分析插入）
 - 风格遵循 style.yaml 的 tone、voice、content_style
@@ -143,6 +121,22 @@ python3 {baseDir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5
 
 覆盖保存终稿。自动模式下选评分最高的标题作为最终标题。
 
+### Step 5.1: 标题校验 + Blacklist 拦截
+
+生成 3 个备选标题后:
+
+1. **学术定义式**: 3 个标题均为学术定义式（副标题 + 主标题），允许 1-2 个变体（裁掉副标题 / 更精炼）。
+2. **Disclaimer 强制**: 文章末尾由 `toolkit/cli.py publish` 自动追加 "本文为逻辑梳理，非学术研究"——不可关闭。
+3. **Blacklist 拦截**: 对每个标题执行:
+
+```bash
+python3 {baseDir}/scripts/check_blacklist.py "{候选标题1}" --client {client}
+python3 {baseDir}/scripts/check_blacklist.py "{候选标题2}" --client {client}
+python3 {baseDir}/scripts/check_blacklist.py "{候选标题3}" --client {client}
+```
+
+任一标题命中 → 该标题淘汰, 重新生成一个学术定义式标题。
+
 ---
 
 ### Step 6: 视觉AI
@@ -163,9 +157,9 @@ python3 {baseDir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5
 
 生成封面 3 组创意（直觉冲击/氛围渲染/信息图表）+ 内文配图提示词。
 
-对 `openai/gpt-image-2`，不要只写“纪实摄影、抓拍、轻微不完美”这类松散描述；应优先按 `references/visual-prompts.md` 的 **Prompt as Code** 思路组织提示词，把故事瞬间、主体动作、环境锚点、镜头参数、光线与负面约束拆开写清。
+对 `openai/gpt-image-2` 或 `minimax/image-01`，不要只写“纪实摄影、抓拍、轻微不完美”这类松散描述；应优先按 `references/visual-prompts.md` 的 **Prompt as Code** 思路组织提示词，把故事瞬间、主体动作、环境锚点、镜头参数、光线与负面约束拆开写清。
 
-**硬性 guardrail：** 如果某条准备送去 `image_generate(model="openai/gpt-image-2")` 的提示词，缺少以下任意 4 项核心字段中的任意一项，就不要直接生成，先重写提示词再调用：
+**硬性 guardrail：** 如果某条准备送去 `image_generate(model="openai/gpt-image-2")` 或 `image_generate(model="minimax/image-01")` 的提示词，缺少以下任意 4 项核心字段中的任意一项，就不要直接生成，先重写提示词再调用：
 - `Intent`
 - `Story moment`
 - `Environment anchors`
@@ -180,29 +174,39 @@ python3 {baseDir}/scripts/seo_keywords.py --json {从热点标题中提取的3-5
 
 #### 6b. 自动生图
 
-优先使用 `image_generate` 工具，并明确指定 **`model: "openai/gpt-image-2"`** 生成封面和内文图片。
-把这条路线视为 **Codex / OpenAI 生图主链路**。如果用户明确要求“用 codex 生成图片”，默认就按这条路线执行。
+优先使用 `image_generate` 工具生成封面和内文图片。
+
+**竹旅快车道（2026-05-22 更新）：**
+- 对 `zhulv`，日更自动任务默认使用 **`model: "minimax/image-01"`** 生成封面和内文图片，作为快速主链路。
+- MiniMax 只支持比例控制，不支持精确 `1536x1024` size；调用时使用 **`aspectRatio="3:2"`**、`outputFormat="png"`，不要传 `size`。
+- MiniMax 产物落地后必须统一后处理/裁切/缩放为 **1536x1024 PNG**，再复制到 `output/zhulv/` 并替换 Markdown 图片路径。
+- `openai/gpt-image-2` 保留为高质量兜底：MiniMax 不可用、连续失败、格式/尺寸/画面质量不合格、有明显可见文字污染时，再切 OpenAI。
+- 若切到 OpenAI，调用参数仍使用 `size="1536x1024"`、`quality="low"`、`outputFormat="png"`，不要传 `aspectRatio`。
+- 如果用户明确要求“用 codex / OpenAI / gpt-image-2 生成图片”，默认按 `openai/gpt-image-2` 执行。
 
 **竹旅强制路由校验（2026-05-14 事故后新增）：**
 - 对 `zhulv`，不得在未说明原因的情况下走 `toolkit/image_gen.py --provider doubao` 或任何旧降级链路。
 - 生成后必须用 `file output/zhulv/<date>-*.png` 校验实际文件类型。
-- 正常 `openai/gpt-image-2` 主链路产物应为 **PNG image data, 1536 x 1024**。
-- 如果出现“扩展名 `.png` 但实际是 JPEG/JFIF”、尺寸明显不是 1536x1024，或文件体积/格式像旧链路产物，视为配图失败；必须立刻用 `image_generate(model="openai/gpt-image-2")` 重出，不得推草稿箱。
-- 若确实因为 OpenAI 连续失败被迫降级，必须在最终回复/日志中明确写出：降级原因、失败次数、使用的 provider；不能让用户误以为仍是 GPT-Image-2。
+- 正常 `zhulv` 日更产物应为 **PNG image data, 1536 x 1024**；无论 MiniMax 原始输出尺寸如何，发布前都必须归一化到该尺寸。
+- 如果出现“扩展名 `.png` 但实际是 JPEG/JFIF”、尺寸明显不是 1536x1024，或文件体积/格式像旧链路产物，视为配图失败；必须重新后处理或切到 `image_generate(model="openai/gpt-image-2")` 重出，不得推草稿箱。
+- 若确实因为 MiniMax 失败切到 OpenAI，或 OpenAI 再失败切到 toolkit provider，必须在最终回复/日志中明确写出：降级原因、失败次数、使用的 provider；不能让用户误以为仍是默认主链路。
 
 仅当以下任一情况出现时，才降级到 `toolkit/image_gen.py`：
 - `image_generate` 工具当前不可用
-- `openai/gpt-image-2` 连续失败
+- `minimax/image-01` 和 `openai/gpt-image-2` 连续失败
 - 用户明确要求改回豆包或其他 provider
 
 注意：`image_generate` 工具将图片写入 `~/.openclaw/media/tool-image-generation/`，
 不是 `{baseDir}/output/{client}/`，需要在生成后复制过去）。
 
 **默认参数建议：**
-- 封面：`model="openai/gpt-image-2"`，`size="1536x1024"`，`quality="high"`
-- 内文图：`model="openai/gpt-image-2"`，`size="1536x1024"`，`quality="medium"`
+- `zhulv` 日更封面/内文图：`model="minimax/image-01"`，`aspectRatio="3:2"`，`outputFormat="png"`，`timeoutMs=180000`
+- MiniMax 输出后：优先用 `python3 {baseDir}/toolkit/normalize_image.py <src> <dst> --size 1536x1024` 居中裁切/缩放到 `1536x1024`，保存为 PNG。
+- OpenAI 兜底封面/内文图：`model="openai/gpt-image-2"`，`size="1536x1024"`，`quality="low"`，`outputFormat="png"`。
+- 输出格式固定为 PNG；MiniMax 不传 `size`，OpenAI 不传 `aspectRatio`，两者都不要传 `outputCompression`。
+- 不要在未验证前用 `count=4` 合并生成。封面单独生成；内文图 2-3 张优先并发生成，但每张都用独立调用/独立结果保存。
 - 明确约束：`no visible text`、`no watermark`
-- 画面倾向：更亮、更饱和、纪实摄影、抓拍感、轻微不完美构图，降低 AI 味
+- 画面倾向：学术概念图 / 学术插画 / 单色或低饱和度 / 概念体现物主体 / 无可见文字
 - 写法倾向：优先使用 **具体场景 + 具体动作 + 具体镜头 + 具体材质瑕疵**，而不是大段抽象风格词
 - 若客户级视觉文件存在，以其中的封面/内文模板优先，不要只按通用模板自由发挥
 
@@ -244,7 +248,7 @@ python3 {baseDir}/toolkit/fix_image_paths.py \
   "${DATE}-${SLUG}-img4.png"
 # 脚本会自动按出现顺序替换 markdown 中的 image-1---{uuid}.png 占位符```
 
-**降级**：如果 `image_generate(model="openai/gpt-image-2")` 失败，再尝试 `toolkit/image_gen.py` 的 provider fallback（建议顺序：openai → doubao）。如果仍失败，输出提示词供用户自行生成，继续后续步骤。
+**降级**：对 `zhulv`，如果 `image_generate(model="minimax/image-01")` 失败或画面不合格，先尝试 `image_generate(model="openai/gpt-image-2")`；若 OpenAI 也失败，再尝试 `toolkit/image_gen.py` 的 provider fallback（建议顺序：openai → doubao）。如果仍失败，输出提示词供用户自行生成，继续后续步骤。
 
 ---
 
@@ -295,7 +299,25 @@ python3 {baseDir}/toolkit/cli.py preview {markdown_path} \
   stats: null  # 由 fetch_stats.py 后续回填
 ```
 
-这条记录会被下次运行的 Step 2.5 读取，用于选题去重和偏好分析。
+这条记录会被下次运行的 Step 2 读取，用于主题去重和偏好分析。
+
+### Step 7.6: 历史经验沉淀 (一次性 onboarding)
+
+新客户或 history.yaml stats 缺失的存量客户, 跑一次:
+
+```bash
+# 抽取高频 pattern, 生成 references/topic-patterns.md
+python3 {baseDir}/scripts/build_topic_patterns.py --client {client} --min-frequency 3
+
+# 从旧 notes 字段回填 quality_signals
+python3 {baseDir}/scripts/backfill_signals.py --client {client}
+```
+
+输出 `references/topic-patterns.md` 会在下次运行 Step 3 时由 Agent 自动加载。
+
+**何时重跑**:
+- 新增 ≥ 20 篇文章后, 重跑 `build_topic_patterns.py` 更新 pattern 库
+- 不需要重跑 `backfill_signals.py` (它只处理历史 notes)
 
 ---
 
@@ -341,7 +363,7 @@ python3 {baseDir}/scripts/fetch_stats.py --client {client} --days 7
 - 哪篇表现不好？可能的原因？
 - 对后续选题/标题/框架的调整建议
 
-这些分析会影响下次运行时 Step 2.5 的偏好参考。
+这些分析会影响下次运行时 Step 2 的偏好参考。
 
 ---
 
