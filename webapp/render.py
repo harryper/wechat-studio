@@ -18,10 +18,11 @@ The workdir layout:
         inline-1.jpg
         inline-2.jpg
 
-For the iframe srcdoc preview we re-write ``<img src="images/X.jpg">``
-to ``<img src="data:image/jpeg;base64,...">`` so the images load without
-a web server. cli.py publish keeps the relative paths, since it uploads
-local files to WeChat and rewrites the URLs itself.
+The iframe loads ``article.html`` directly from the workdir via
+``/api/history/<id>/html`` (relative ``<img src="images/X.jpg">`` paths
+resolve against the iframe's base URL to ``/api/history/<id>/images/...``).
+cli.py publish keeps the relative paths, since it uploads local files
+to WeChat and rewrites the URLs itself.
 
 Image strategy: try the configured AI providers (MiniMax / OpenAI /
 Doubao — whichever has quota + key) in order. If every provider fails,
@@ -33,9 +34,7 @@ provider is configured.
 
 from __future__ import annotations
 
-import base64
 import logging
-import re
 import subprocess
 import sys
 import uuid
@@ -291,8 +290,12 @@ def generate_images_in_workdir(
 
 
 # ── 步骤 3：渲染预览（cli.py preview）──────────────────────────────────
-def render_preview_html(workdir: Path, theme: str) -> str:
-    """Run cli.py preview on article.md and return HTML with embedded data URIs."""
+def _write_preview_html(workdir: Path, theme: str) -> None:
+    """Run cli.py preview on article.md, producing article.html in workdir.
+
+    The iframe loads this directly via /api/history/<id>/html, so we don't
+    return the HTML — we just need to make sure the file exists.
+    """
     md_file = workdir / "article.md"
     html_file = workdir / "article.html"
 
@@ -318,35 +321,30 @@ def render_preview_html(workdir: Path, theme: str) -> str:
             f"cli.py preview 失败 (rc={proc.returncode}): "
             f"{(proc.stderr or proc.stdout).strip()}"
         )
-    html = html_file.read_text(encoding="utf-8")
-    return _embed_images_as_data_uris(html, workdir)
 
 
-# ── 把图片 src 替换成 data URI（给 iframe srcdoc 用）────────────────────
-_IMG_TAG_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]*)("[^>]*>)', re.DOTALL)
-_MIME_FOR_EX = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                "png": "image/png", "webp": "image/webp"}
+# xiaohu-wechat-format 的 preview 只输出 body { max-width, ... } 一段，
+# 不带 img / 列表 / 表格等元素的样式 — 1024px 的 AI 封面图会按原尺寸渲染
+# 撑爆 iframe。给 webapp 这一路的预览补一段基础阅读样式。
+_IFRAME_BOOTSTRAP_CSS = """\
+<style data-ws-bootstrap>
+  body { word-wrap: break-word; overflow-wrap: break-word; }
+  img { max-width: 100%; height: auto; display: block; margin: 16px auto; border-radius: 6px; }
+  pre { white-space: pre-wrap; word-wrap: break-word; }
+  table { max-width: 100%; }
+  .preview-frame { max-width: 100%; }
+</style>"""
 
 
-def _embed_images_as_data_uris(html: str, workdir: Path) -> str:
-    """Replace local image srcs with base64 data URIs read from workdir."""
+def _inject_iframe_bootstrap(html: str) -> str:
+    """Inject base reading CSS into the iframe HTML head.
 
-    def replace(match: re.Match) -> str:
-        prefix, src, suffix = match.group(1), match.group(2), match.group(3)
-        if src.startswith(("data:", "http://", "https://", "file://")):
-            return match.group(0)
-        img_path = (workdir / src).resolve()
-        if not img_path.is_file():
-            log.warning("image not found for embedding: %s", img_path)
-            return match.group(0)
-        try:
-            data = img_path.read_bytes()
-        except OSError as e:
-            log.warning("failed reading %s: %s", img_path, e)
-            return match.group(0)
-        ext = img_path.suffix.lstrip(".").lower() or "jpeg"
-        mime = _MIME_FOR_EX.get(ext, "image/jpeg")
-        b64 = base64.b64encode(data).decode("ascii")
-        return f"{prefix}data:{mime};base64,{b64}{suffix}"
-
-    return _IMG_TAG_RE.sub(replace, html)
+    Targets the xiaohu preview path which emits only a body style block.
+    Idempotent — if ``data-ws-bootstrap`` is already there, skip.
+    """
+    if 'data-ws-bootstrap' in html:
+        return html
+    if "</head>" in html:
+        return html.replace("</head>", _IFRAME_BOOTSTRAP_CSS + "</head>", 1)
+    # Fallback: prepend a head if missing entirely.
+    return f"<head>{_IFRAME_BOOTSTRAP_CSS}</head>{html}"

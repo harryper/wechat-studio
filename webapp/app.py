@@ -35,8 +35,8 @@ from flask import Flask, Response, jsonify, redirect, render_template, request
 
 from . import history
 from .render import (
+    _write_preview_html,
     generate_images_in_workdir,
-    render_preview_html,
     write_article_to_workdir,
 )
 
@@ -235,7 +235,7 @@ def api_preview():
                         "phase": "images"}), 500
 
     try:
-        html = render_preview_html(workdir, theme)
+        _write_preview_html(workdir, theme)
     except Exception as e:
         log.error("preview render failed: %s", e)
         return jsonify({"ok": False, "error": f"预览渲染失败：{e}",
@@ -249,8 +249,7 @@ def api_preview():
         "workdir": str(workdir),
         "image_mode": image_mode,
     })
-    log.info("preview %s → history #%d (%s, %d chars HTML)",
-             topic_id, entry_id, image_mode, len(html))
+    log.info("preview %s → history #%d (%s)", topic_id, entry_id, image_mode)
 
     return jsonify(
         {
