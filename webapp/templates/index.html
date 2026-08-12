@@ -219,6 +219,27 @@
     background: rgba(251, 191, 36, 0.18);
     color: var(--warning);
   }
+  .history-item .delete-btn {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: all 0.15s;
+  }
+  .history-item { position: relative; }
+  .history-item .delete-btn:hover {
+    color: var(--danger);
+    background: rgba(248, 113, 113, 0.12);
+    opacity: 1;
+  }
   .history-item .title {
     font-size: 13px;
     color: var(--text-1);
@@ -394,7 +415,12 @@
           '<div class="meta">' +
             (e.topic_id || '') + ' · ' + (e.theme || '') + ' · ' +
             (e.created_at || '') +
-          '</div>';
+          '</div>' +
+          '<button class="delete-btn" data-id="' + e.id + '" title="删除">×</button>';
+        div.querySelector('.delete-btn').addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          deleteHistory(e.id);
+        });
         div.addEventListener('click', () => loadHistoryEntry(e.id));
         historyList.appendChild(div);
       }
@@ -439,6 +465,27 @@
         for (const it of historyList.querySelectorAll('.history-item')) {
           it.classList.toggle('active', it.dataset.id === String(e.id));
         }
+      } catch (e) {
+        showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
+      }
+    }
+
+    async function deleteHistory(id) {
+      if (!confirm('确认删除历史 #' + id + '？')) return;
+      try {
+        const resp = await fetch('/api/history/' + id, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          showStatus('error', '删除失败：' + (data.error || resp.status));
+          return;
+        }
+        if (currentPreview && currentPreview.history_id === id) {
+          clearPreview();
+          currentPreview = null;
+          btnPublish.disabled = true;
+          metaEl.innerHTML = '&nbsp;';
+        }
+        await refreshHistory();
       } catch (e) {
         showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
       }
