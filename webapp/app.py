@@ -314,7 +314,7 @@ def api_history_html(entry_id: int):
     Cache-Control: private, max-age=3600 — the file is immutable for a given
     history_id (preview never re-renders the same id).
     """
-    from .render import _inject_iframe_bootstrap  # late import — avoids circulars
+    from .render import _inject_iframe_bootstrap  # local import keeps the webapp module-level surface tight
 
     entry = history.get(entry_id)
     if entry is None:
