@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request
 
 from . import history
 from .render import (
@@ -246,7 +246,6 @@ def api_preview():
         "title": topic.get("title", ""),
         "category": topic.get("category", ""),
         "theme": theme,
-        "html": html,
         "workdir": str(workdir),
         "image_mode": image_mode,
     })
@@ -257,7 +256,7 @@ def api_preview():
         {
             "ok": True,
             "history_id": entry_id,
-            "html": html,
+            "html_url": f"/api/history/{entry_id}/html",
             "image_mode": image_mode,
             "topic": {
                 "id": topic.get("id"),
@@ -286,11 +285,98 @@ def api_history_list():
 
 @app.route("/api/history/<int:entry_id>", methods=["GET"])
 def api_history_get(entry_id: int):
-    """返回某条预览的完整 html + 元数据（用于「回看」按钮）。"""
+    """Return entry metadata + iframe URL (no html — too big to ship in JSON)."""
     entry = history.get(entry_id)
     if entry is None:
         return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
-    return jsonify({"ok": True, "entry": entry})
+    return jsonify(
+        {
+            "ok": True,
+            "entry": entry,
+            "html_url": f"/api/history/{entry_id}/html",
+        }
+    )
+
+
+# MIME types for /api/history/<id>/images/
+_HISTORY_IMAGE_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png", ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+@app.route("/api/history/<int:entry_id>/html", methods=["GET"])
+def api_history_html(entry_id: int):
+    """Serve the themed HTML for iframe.src.
+
+    The HTML has relative <img src="images/cover.jpg"> references that
+    resolve to /api/history/<id>/images/cover.jpg via the iframe's base URL.
+    Cache-Control: private, max-age=3600 — the file is immutable for a given
+    history_id (preview never re-renders the same id).
+    """
+    from .render import _inject_iframe_bootstrap  # late import — avoids circulars
+
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    html_path = Path(entry["workdir"]) / "article.html"
+    if not html_path.exists():
+        return jsonify({"ok": False, "error": "article.html 已丢失",
+                        "phase": "session"}), 410
+    html = _inject_iframe_bootstrap(html_path.read_text(encoding="utf-8"))
+    resp = Response(html, mimetype="text/html; charset=utf-8")
+    resp.headers["Cache-Control"] = "private, max-age=3600"
+    return resp
+
+
+@app.route("/api/history/<int:entry_id>/images/<path:name>", methods=["GET"])
+def api_history_image(entry_id: int, name: str):
+    """Serve an image file from the workdir's images/ subdirectory.
+
+    Rejects path-traversal: name must be a single segment without '/'.
+    """
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    # Block path traversal: only accept a single filename, no slashes/dots.
+    if "/" in name or ".." in name or name.startswith("."):
+        return jsonify({"error": "bad image name"}), 400
+    img_path = (Path(entry["workdir"]) / "images" / name).resolve()
+    images_dir = (Path(entry["workdir"]) / "images").resolve()
+    if not str(img_path).startswith(str(images_dir) + "/"):
+        return jsonify({"error": "path escape"}), 400
+    if not img_path.is_file():
+        return jsonify({"error": "image not found"}), 404
+    ext = img_path.suffix.lower()
+    mime = _HISTORY_IMAGE_MIME.get(ext, "application/octet-stream")
+    data = img_path.read_bytes()
+    resp = Response(data, mimetype=mime)
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+@app.route("/api/history/<int:entry_id>", methods=["DELETE"])
+def api_history_delete(entry_id: int):
+    """Delete a history entry and its workdir.
+
+    The workdir is bind-mounted disk content — we own it and can free it.
+    If the directory is already gone (cleanup is idempotent), that's fine.
+    """
+    import shutil
+
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    history.delete(entry_id)
+    workdir = entry.get("workdir")
+    if workdir:
+        try:
+            shutil.rmtree(workdir, ignore_errors=True)
+        except OSError as e:
+            log.warning("failed to remove workdir %s: %s", workdir, e)
+    log.info("deleted history #%d (workdir=%s)", entry_id, workdir)
+    return jsonify({"ok": True, "deleted": entry_id})
 
 
 # ── 推送 ─────────────────────────────────────────────────────────────
