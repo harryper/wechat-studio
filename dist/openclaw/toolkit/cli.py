@@ -72,6 +72,16 @@ def load_config() -> dict:
     return {}
 
 
+DISCLAIMER = "\n\n---\n\n> **声明**：本文为逻辑梳理，非学术研究。引用细节可能存在简化。\n"
+
+
+def inject_disclaimer(markdown: str) -> str:
+    """Append academic disclaimer. Idempotent."""
+    if DISCLAIMER.strip() in markdown:
+        return markdown
+    return markdown.rstrip() + DISCLAIMER
+
+
 def cmd_preview(args):
     """Generate HTML preview and open in browser.
     
@@ -82,7 +92,7 @@ def cmd_preview(args):
     xiaohu_themes = list_xiaohu_themes()
     use_xiaohu = theme_name in xiaohu_themes
 
-    md_text = Path(args.input).read_text(encoding='utf-8')
+    md_text = _sanitize_article_markdown(Path(args.input).read_text(encoding='utf-8'))
     input_path = Path(args.input)
     output = args.output or str(input_path.with_suffix(".html"))
 
@@ -108,7 +118,7 @@ def cmd_preview(args):
         # Use legacy wechat-studio converter
         theme = load_theme(theme_name)
         converter = WeChatConverter(theme=theme)
-        result = converter.convert_file(args.input)
+        result = converter.convert(md_text)
         html = result.html
         title = result.title
         digest = result.digest
@@ -243,6 +253,26 @@ def _extract_title_and_digest(md_text: str):
     return title, digest
 
 
+def _sanitize_article_markdown(md_text: str) -> str:
+    """Keep only the publishable article body if draft notes wrapped the final copy."""
+    lines = md_text.splitlines()
+    final_heading_idx = None
+    final_heading_re = re.compile(r"^#\s*【?(?:终稿|最终稿|定稿|正文)】?\s*$")
+    for idx, line in enumerate(lines):
+        if final_heading_re.match(line.strip()):
+            final_heading_idx = idx
+            break
+
+    if final_heading_idx is not None:
+        lines = lines[final_heading_idx + 1 :]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        if lines and lines[0].startswith("## "):
+            lines[0] = "# " + lines[0][3:].strip()
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def _extract_images_from_md(md_text: str) -> list[str]:
     """Extract image paths from markdown text."""
     import re
@@ -264,7 +294,8 @@ def cmd_publish(args):
         print("Error: --appid and --secret required (or set in config.yaml)", file=sys.stderr)
         sys.exit(1)
 
-    md_text = Path(args.input).read_text(encoding='utf-8')
+    md_text = _sanitize_article_markdown(Path(args.input).read_text(encoding='utf-8'))
+    md_text = inject_disclaimer(md_text)
     xiaohu_themes = list_xiaohu_themes()
     use_xiaohu = theme_name in xiaohu_themes
 
@@ -281,7 +312,7 @@ def cmd_publish(args):
         # Use legacy wechat-studio converter
         theme = load_theme(theme_name)
         converter = WeChatConverter(theme=theme)
-        result = converter.convert_file(args.input)
+        result = converter.convert(md_text)
         html = result.html
         title = result.title
         digest = result.digest
