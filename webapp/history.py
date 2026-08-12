@@ -71,12 +71,19 @@ def _save() -> None:
 
 
 def add(entry: Dict[str, Any]) -> int:
-    """Add a new history entry. Trims to _MAX_ENTRIES oldest-first."""
+    """Add a new history entry. Trims to _MAX_ENTRIES oldest-first.
+
+    The ``html`` field is stripped here — it lived as a 1.7 MB blob in
+    history.json and forced every /api/history/<id> response to ferry
+    a base64-embedded iframe through JSON. The iframe now loads from
+    /api/history/<id>/html instead.
+    """
     global _next_id
     with _lock:
         _load()
+        clean = {k: v for k, v in entry.items() if k != "html"}
         new_entry = {"id": _next_id, "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                     **entry}
+                     **clean}
         _next_id += 1
         _entries.append(new_entry)
         # Trim from the front if over capacity
@@ -84,6 +91,19 @@ def add(entry: Dict[str, Any]) -> int:
             _entries.pop(0)
         _save()
         return new_entry["id"]
+
+
+def delete(entry_id: int) -> bool:
+    """Remove an entry by id. Returns True if it existed, False otherwise."""
+    global _next_id
+    with _lock:
+        _load()
+        before = len(_entries)
+        _entries[:] = [e for e in _entries if e["id"] != entry_id]
+        if len(_entries) == before:
+            return False
+        _save()
+        return True
 
 
 def list_entries() -> List[Dict[str, Any]]:
