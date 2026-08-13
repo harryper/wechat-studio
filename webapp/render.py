@@ -35,6 +35,7 @@ provider is configured.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import sys
 import uuid
@@ -321,6 +322,43 @@ def _write_preview_html(workdir: Path, theme: str) -> None:
             f"cli.py preview 失败 (rc={proc.returncode}): "
             f"{(proc.stderr or proc.stdout).strip()}"
         )
+
+    # Defensive: if cli.py ever dispatches to the legacy converter path
+    # (converter.py `_fix_cjk_spacing` inserts U+0020 between every CJK pair),
+    # the output article.html will read `可 得性` instead of `可得性`.
+    # Detect that and overwrite with a clean xiaohu-rendered version.
+    if re.search(r"[一-鿿] [一-鿿]", html_file.read_text(encoding="utf-8")):
+        xiaohu_py = TOOLKIT_DIR.parent.parent / "xiaohu-wechat-format" / "scripts" / "format.py"
+        rerun = subprocess.run(
+            [
+                sys.executable, str(xiaohu_py),
+                "--input", str(md_file),
+                "--theme", theme,
+                "--format", "wechat",
+                "--no-open",
+                "--output", str(html_file.parent),
+            ],
+            cwd=str(SKILL_DIR),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        xiaohu_out = html_file.parent / md_file.stem / "preview.html"
+        if rerun.returncode != 0 or not xiaohu_out.exists():
+            raise RuntimeError(
+                f"xiaohu fallback 失败 (rc={rerun.returncode}): "
+                f"{(rerun.stderr or rerun.stdout).strip()}"
+            )
+        # xiaohu writes `<stem>/preview.html` inside the parent dir; move it
+        # to article.html so the iframe loader finds it.
+        xiaohu_html = xiaohu_out.read_text(encoding="utf-8")
+        wrapped = (
+            '<!DOCTYPE html><html lang="zh-CN"><head>'
+            '<meta charset="UTF-8"><title>Preview</title>'
+            '<style>body{margin:0;padding:0;background:#f5f5f5}</style>'
+            '</head><body>' + xiaohu_html + '</body></html>'
+        )
+        html_file.write_text(wrapped, encoding="utf-8")
 
 
 # xiaohu-wechat-format 的 preview 只输出 body { max-width, ... } 一段，
