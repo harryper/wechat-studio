@@ -1,10 +1,10 @@
-# WeChat Studio 配置
-# 复制为 config.yaml 并填入你的信息
+# WeChat Studio 配置示例
+# 敏感值只从环境变量读取，不要把真实密钥写入仓库。
 
 # 微信公众号 API（发布草稿 + 数据统计必需）
 wechat:
-  appid: "wx_your_appid"
-  secret: "your_appsecret"
+  appid: "${WECHAT_APPID}"
+  secret: "${WECHAT_SECRET}"
   author: ""  # 默认署名（可选）
 
 # AI 图片生成
@@ -30,7 +30,7 @@ wechat:
 # 默认建议优先 OpenAI / Codex 路线；豆包作为回退
 image:
   provider: "openai"           # 见上表 Provider 列
-  api_key: "your_api_key"
+  api_key: "${OPENAI_API_KEY}"
   model: "gpt-image-2"
   # base_url: "https://api.openai.com/v1"  # 可选
 
@@ -39,32 +39,32 @@ image:
 # image:
 #   providers:
 #     - provider: openai
-#       api_key: "sk-..."
+#       api_key: "${OPENAI_API_KEY}"
 #       model: "gpt-image-2"
 #     - provider: doubao
-#       api_key: "your_volcengine_key"
+#       api_key: "${DOUBAO_API_KEY}"
 #     - provider: dashscope
-#       api_key: "your_dashscope_key"
+#       api_key: "${DASHSCOPE_API_KEY}"
 #       # model: "qwen-image-2.0-pro"
 #     - provider: jimeng
-#       api_key: "your_access_key_id"       # 即梦需要 access_key_id + secret_key
-#       secret_key: "your_secret_access_key"
+#       api_key: "${JIMENG_ACCESS_KEY}"      # 即梦需要 access_key_id + secret_key
+#       secret_key: "${JIMENG_SECRET_KEY}"
 #       # model: "jimeng_t2i_v40"
 #     - provider: minimax
-#       api_key: "your_minimax_key"
+#       api_key: "${MINIMAX_API_KEY}"
 #       # model: "image-01"
 #     - provider: azure_openai
-#       api_key: "your_azure_key"
+#       api_key: "${AZURE_OPENAI_API_KEY}"
 #       base_url: "https://YOUR-RESOURCE.openai.azure.com/openai"  # 必填
 #       # deployment: "gpt-image-2"
 #     - provider: gemini
-#       api_key: "AIza..."
+#       api_key: "${GEMINI_API_KEY}"
 #       # model: "gemini-3.1-flash-image-preview"
 #     - provider: openrouter
-#       api_key: "sk-or-..."
+#       api_key: "${OPENROUTER_API_KEY}"
 #       # model: "google/gemini-3.1-flash-image-preview"
 #     - provider: replicate
-#       api_key: "r8_..."
+#       api_key: "${REPLICATE_API_TOKEN}"
 #       # model: "google/nano-banana-pro"
 
 # 默认排版主题

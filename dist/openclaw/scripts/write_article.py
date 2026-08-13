@@ -226,12 +226,12 @@ def write_article(
     Raises RuntimeError on any API / parse failure — caller surfaces the
     error to the user, no silent fallback.
     """
-    client = _build_client()
+    llm_client = _build_client()
     chosen_model = model or os.environ.get("ANTHROPIC_MODEL", "MiniMax-M3")
     prompt = _build_prompt(topic, client=client)
 
     try:
-        resp = client.messages.create(
+        resp = llm_client.messages.create(
             model=chosen_model,
             max_tokens=max_tokens,
             timeout=timeout,

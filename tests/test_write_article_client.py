@@ -1,6 +1,24 @@
 from scripts import write_article
 
 
+class _TextBlock:
+    text = "# 测试标题\n\n正文"
+
+
+class _Messages:
+    def __init__(self):
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return type("Response", (), {"content": [_TextBlock()]})()
+
+
+class _LLMClient:
+    def __init__(self):
+        self.messages = _Messages()
+
+
 def test_client_context_loads_style_and_playbook(tmp_path, monkeypatch):
     client_dir = tmp_path / "clients" / "demo"
     client_dir.mkdir(parents=True)
@@ -19,3 +37,25 @@ def test_client_context_rejects_path_traversal():
         assert "客户名" in str(exc)
     else:
         raise AssertionError("path traversal client name should fail")
+
+
+def test_write_article_keeps_customer_name_separate_from_llm_client(monkeypatch):
+    llm_client = _LLMClient()
+    seen = {}
+
+    monkeypatch.setattr(write_article, "_build_client", lambda: llm_client)
+
+    def fake_build_prompt(topic, client=None):
+        seen["client"] = client
+        return "prompt"
+
+    monkeypatch.setattr(write_article, "_build_prompt", fake_build_prompt)
+
+    markdown = write_article.write_article(
+        {"title": "测试主题"},
+        client="demo",
+    )
+
+    assert seen["client"] == "demo"
+    assert markdown.startswith("# 测试标题")
+    assert llm_client.messages.kwargs["messages"][0]["content"] == "prompt"

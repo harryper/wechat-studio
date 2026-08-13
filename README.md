@@ -1,79 +1,110 @@
 # WeChat Studio
 
-公众号 AI 内容工作台：从知识库选题、长文写作和配图，到主题预览和微信草稿箱。
+公众号 AI 内容工作台：从知识库选题、长文写作和配图，到主题预览、在线修改和微信草稿箱发布。
 
-## 快速开始
+当前版本：`1.4.1`
+
+## 功能概览
+
+- 从 `references/knowledge-corpus.yaml` 选择选题，并按关键词匹配写作框架。
+- 通过 Anthropic Messages 兼容接口生成 2500–4000 字 Markdown 长文。
+- 异步生成 1 张封面和 4 张内文图；单张失败时生成本地占位图，不中断整篇任务。
+- 提供 38 套主题、桌面/移动预览、Markdown 在线修改和历史记录。
+- 支持重写文章、重生全部图片、重生单张图片及单独换主题。
+- 发布前检查标题、图片、封面、客户 Blacklist、占位图和 AI 痕迹分。
+- 经用户确认后创建微信公众号草稿，不会自动群发。
+
+## 安装
+
+建议放在 OpenClaw 的 skills 工作区；`xiaohu-wechat-format` 是部分主题使用的兄弟目录依赖。
 
 ```bash
-git clone --depth 1 https://github.com/harryper/wechat-studio.git ~/.openclaw/skills/wechat-studio
-cd ~/.openclaw/skills/wechat-studio
+mkdir -p ~/.openclaw/workspace/skills
+git clone --depth 1 https://github.com/harryper/wechat-studio.git \
+  ~/.openclaw/workspace/skills/wechat-studio
+git clone --depth 1 https://github.com/xiaohuailabs/xiaohu-wechat-format.git \
+  ~/.openclaw/workspace/skills/xiaohu-wechat-format
+cd ~/.openclaw/workspace/skills/wechat-studio
+mkdir -p clients
 pip install -r requirements.txt
-cp config.example.yaml config.yaml
 ```
 
-可以通过两种入口使用：
+仓库已自带使用环境变量占位符的 `config.yaml`，通常不需要复制配置文件。`config.example.yaml` 仅用于查看单供应商和多供应商的完整写法。
 
-- OpenClaw：说“写一篇公众号文章”，由 `SKILL.md` 编排流程。
-- Web 工作台：运行 `docker compose up -d --build`，访问 `http://localhost:9997`。
+## 配置
 
-## 实际主流程
+推荐在项目根目录创建不入库的 `.env`：
 
-OpenClaw 和 Web 工作台共用同一套内容契约：
+```dotenv
+# Web 生成文章必需：Anthropic Messages 兼容接口
+ANTHROPIC_BASE_URL=https://your-endpoint.example
+ANTHROPIC_AUTH_TOKEN=your-token
+ANTHROPIC_MODEL=MiniMax-M3
+
+# 创建微信草稿时必需
+WECHAT_APPID=wx_your_appid
+WECHAT_SECRET=your_appsecret
+
+# 生图供应商至少配置一个；均未配置时使用本地占位图
+MINIMAX_API_KEY=your-minimax-key
+OPENAI_API_KEY=sk-...
+DOUBAO_API_KEY=your-volc-key
+
+# Web 登录，正式部署务必修改
+APP_PASSWORD=a-strong-password
+APP_COOKIE_SECRET=a-long-random-secret
+```
+
+`config.yaml` 支持 `${VAR}` 和 `${VAR:-default}`，不要在仓库文件中写入真实密钥。未设置 `APP_PASSWORD` 时，开发环境默认密码为 `asdf123456`；这只适合本机测试。
+
+## 启动 Web 工作台
+
+```bash
+docker compose up -d --build
+curl -fsS http://127.0.0.1:9997/api/health
+```
+
+浏览器访问 `http://localhost:9997`。Compose 默认从 `../xiaohu-wechat-format` 挂载排版引擎；若它位于其他目录，可在 `.env` 中设置绝对路径：
+
+```dotenv
+XIAOHU_FORMAT_DIR=/absolute/path/to/xiaohu-wechat-format
+```
+
+生成请求会立即返回任务 ID，页面通过轮询显示写作、配图、排版和质量检查进度。任务状态保存在 `webapp/_data/jobs/`，所以刷新页面后可以继续查看；后台线程不会跨进程恢复，容器或服务重启时未完成的任务需要重新提交。
+
+## OpenClaw 与 Web 的流程
+
+两种入口共用文章、图片、排版和发布契约，但执行方式不同：OpenClaw 由 `SKILL.md` 编排工具调用，Web 由后台任务流水线执行。
 
 ```text
-1. 从 references/knowledge-corpus.yaml 选题
-2. 按标题关键词选择学术写作框架
-3. 通过 Anthropic 兼容 API 生成 2500–4000 字 Markdown 长文
-4. 后台生成封面 + 4 张内文图；单张失败时使用 PIL 占位图
-5. 使用所选主题生成 HTML 预览，并保存预览历史
-6. 在线编辑、换主题，或按文章/全部图片/单张图片重新生成
-7. 通过发布前检查后，由用户确认创建微信草稿
+1. 选择知识库主题和写作框架
+2. 读取可选客户 Style/Playbook，生成 Markdown 长文
+3. 生成封面 + 4 张内文图
+4. 生成主题 HTML，保存历史和质量检查结果
+5. 在线编辑、换主题，或按文章/全部图片/单张图片重新生成
+6. 用户确认后创建微信草稿
 ```
 
 发布时会自动：
 
-- 从 H1 提取微信标题；
-- 从正文移除 H1、内部分类元数据和封面图；
-- 识别名为 `cover.jpg/png/webp/gif` 的图片作为微信封面；
+- 从首个 H1 提取微信标题，并从发布正文移除 H1 和内部分类元数据；
+- 识别文件名为 `cover.jpg`、`cover.png`、`cover.webp` 或 `cover.gif` 的图片作为封面；
+- 从正文移除封面图，上传其余本地图片并替换链接；
 - 追加“本文为逻辑梳理，非学术研究”声明。
 
-Web 工作台已支持可选客户 Style/Playbook、标题 Blacklist 和 AI 痕迹检测。热点抓取、SEO 备选标题、人工改稿学习和数据复盘仍是 Agent/CLI 的可选扩展能力。
+## 客户 Style / Playbook
 
-### Web 产品化能力
+每个客户使用独立目录；`clients/` 默认不进入 Git，Compose 会只读挂载到容器：
 
-- 生成请求返回 `job_id`，前端轮询写作、配图、排版和质量检查进度。
-- 任务状态保存在 `webapp/_data/jobs/`，页面刷新后可恢复轮询。
-- 历史文章可在线修改 Markdown，保存后立即重新排版。
-- 可只重写文章、重生全部图片、重生指定图片或单独换主题。
-- 发布前检查标题、图片完整性、封面、Blacklist、占位图和 AI 痕迹分。
-
-## 配置
-
-```bash
-# 文章生成（Web 生成预览必需）
-export ANTHROPIC_BASE_URL="https://your-endpoint.example"
-export ANTHROPIC_AUTH_TOKEN="your-token"
-export ANTHROPIC_MODEL="MiniMax-M3"
-
-# 微信草稿发布时必需
-export WECHAT_APPID="wx_your_appid"
-export WECHAT_SECRET="your_appsecret"
-
-# 可选生图供应商；都未配置时 Web 使用本地占位图
-export MINIMAX_API_KEY="your-minimax-key"
-export OPENAI_API_KEY="sk-..."
-export DOUBAO_API_KEY="your-volc-key"
-
-# Web 登录；部署时请务必替换默认值
-export APP_PASSWORD="a-strong-password"
-export APP_COOKIE_SECRET="a-long-random-secret"
+```text
+clients/acme/
+├── style.yaml     # tone、voice、content_style、blacklist
+└── playbook.md    # 客户专属写作规则
 ```
 
-`config.yaml` 支持 `${VAR}` 和 `${VAR:-default}` 占位符，不要在仓库中写入明文密钥。
+在 Web 中选择客户后，Style/Playbook 会进入写作提示词，Blacklist 会参与发布前检查。AI 痕迹分为 `0–100`，越低表示规则检测到的模板化痕迹越少；它是启发式提示，不是内容真实性结论。
 
-## 主题与排版
-
-项目内置 38 套主题。可用的 xiaohu 主题走外部 `xiaohu-wechat-format` 引擎，其余主题走项目原生转换器。
+## CLI
 
 ```bash
 python3 toolkit/cli.py themes
@@ -82,9 +113,7 @@ python3 toolkit/cli.py preview article.md --theme terracotta --no-open
 python3 toolkit/cli.py publish article.md --cover cover.png --title "标题"
 ```
 
-`xiaohu-wechat-format` 当前是兄弟目录依赖；Docker Compose 默认将宿主机的 `/root/.openclaw/workspace/skills/xiaohu-wechat-format` 挂载到容器。
-
-## 可选扩展
+可选的运营和学习工具：
 
 ```bash
 python3 scripts/fetch_hotspots.py --limit 20
@@ -93,19 +122,18 @@ python3 scripts/fetch_stats.py --client CLIENT --days 7
 python3 scripts/learn_edits.py --client CLIENT --draft draft.md --final final.md
 ```
 
-## 目录
+## 升级与部署
 
-```text
-wechat-studio/
-├── SKILL.md                 # OpenClaw 编排指令
-├── webapp/                  # Flask Web 工作台和预览历史
-├── toolkit/                 # 排版、生图、微信 API 和发布 CLI
-├── scripts/                 # 写作、选题、检测和学习工具
-├── references/              # 知识库与按需加载的写作规范
-├── toolkit/themes/          # 38 套主题 YAML
-├── clients/                 # 本地客户配置，不进 Git
-└── dist/openclaw/           # scripts/build_openclaw.py 生成的分发包
+升级前先确认本地改动；下面的命令不会替你处理冲突：
+
+```bash
+git status --short
+git pull --ff-only
+docker compose up -d --build
+curl -fsS http://127.0.0.1:9997/api/health
 ```
+
+运行状态保存在 bind mount 的 `webapp/_data/`，重新构建镜像不会删除历史记录。系统默认最多保留 100 个任务状态和 10 条文章历史，可分别通过 `WS_JOB_MAX`、`WS_HISTORY_MAX` 调整。
 
 ## 验证
 
@@ -113,6 +141,30 @@ wechat-studio/
 python3 -m pytest -q
 python3 -m compileall -q toolkit scripts webapp
 python3 scripts/diagnose.py --json
+docker compose config -q
 ```
 
-MIT · https://github.com/harryper/wechat-studio
+## 常见问题
+
+- **生成时报 `ANTHROPIC_BASE_URL 未设置`**：在 `.env` 配置兼容接口地址、令牌和模型，然后重建或重启容器。
+- **图片都是占位图**：检查至少一个生图 API Key；任务详情和 `image-status.json` 会记录每张图的结果。
+- **xiaohu 主题不可用**：确认兄弟项目存在，或通过 `XIAOHU_FORMAT_DIR` 指向其绝对路径。
+- **客户列表为空**：先创建 `clients/<客户名>/style.yaml`，然后确认 Compose 已挂载 `./clients:/app/clients:ro`。
+- **微信发布失败**：运行 `python3 scripts/diagnose.py --json`，检查 AppID、Secret、IP 白名单和封面文件。
+- **任务长时间停在运行中**：若服务期间发生过重启，请重新提交任务；旧任务 JSON 可继续用于排查。
+
+## 目录
+
+```text
+wechat-studio/
+├── SKILL.md                 # OpenClaw 编排指令
+├── webapp/                  # Flask 工作台、异步任务和预览历史
+├── toolkit/                 # 排版、生图、微信 API 和发布 CLI
+├── scripts/                 # 写作、选题、检测和学习工具
+├── references/              # 知识库与按需加载的写作规范
+├── toolkit/themes/          # 38 套主题 YAML
+├── clients/                 # 本地客户配置，不进入 Git
+└── dist/openclaw/           # OpenClaw 分发包
+```
+
+MIT · <https://github.com/harryper/wechat-studio>

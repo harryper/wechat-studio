@@ -17,9 +17,8 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only what's needed for cli.py to run: webapp + toolkit + scripts +
-# references (corpus) + config.yaml. clients/ is gitignored and not needed
-# for preview/publish from the web UI.
+# Copy the versioned application. Customer profiles under clients/ are local
+# data and are mounted by Docker Compose when present.
 COPY webapp/ ./webapp/
 COPY toolkit/ ./toolkit/
 COPY scripts/ ./scripts/

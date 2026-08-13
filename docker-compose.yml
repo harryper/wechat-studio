@@ -11,12 +11,13 @@ services:
       - ./toolkit:/app/toolkit
       - ./scripts:/app/scripts
       - ./references:/app/references
+      - ./clients:/app/clients:ro
       - ./config.yaml:/app/config.yaml:ro
       # xiaohu-wechat-format is a sibling skill in `skills/`, not part of
       # this repo. toolkit/xiaohu_formatter.py walks up 3 dirs from its
       # own location to find it; mount at /xiaohu-wechat-format so that
       # walk resolves inside the container.
-      - /root/.openclaw/workspace/skills/xiaohu-wechat-format:/xiaohu-wechat-format:ro
+      - ${XIAOHU_FORMAT_DIR:-../xiaohu-wechat-format}:/xiaohu-wechat-format:ro
       # Host-side logs are picked up by logrotate on the host.
       - /var/log/wechat-studio:/app/logs
     environment:
@@ -47,6 +48,8 @@ services:
       # One background generation job per web worker; two Gunicorn workers
       # still allow two jobs concurrently without exhausting image memory.
       - WS_JOB_WORKERS=1
+      - WS_JOB_MAX=${WS_JOB_MAX:-100}
+      - WS_HISTORY_MAX=${WS_HISTORY_MAX:-10}
     deploy:
       resources:
         limits:
