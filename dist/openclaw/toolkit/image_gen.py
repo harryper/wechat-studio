@@ -77,6 +77,23 @@ def _load_env_files() -> None:
             value = value.strip().strip('"').strip("'")
             os.environ.setdefault(key, value)
 
+    if not os.environ.get("MINIMAX_API_KEY"):
+        for key_path in [
+            Path(__file__).parents[2] / "voice-studio" / "scripts" / "minimax_api_key.txt",
+            Path(__file__).parents[2] / "voice-studio" / "minimax_api_key.txt",
+        ]:
+            if key_path.exists():
+                os.environ.setdefault("MINIMAX_API_KEY", key_path.read_text(encoding="utf-8").strip())
+                break
+    # Last resort: the MiniMax image API shares the same account/key as the
+    # Anthropic-compatible LLM endpoint exported as ANTHROPIC_AUTH_TOKEN.
+    # Direct assignment because docker-compose may pre-set MINIMAX_API_KEY
+    # to an empty string, in which case setdefault is a no-op.
+    if not os.environ.get("MINIMAX_API_KEY"):
+        fallback = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+        if fallback:
+            os.environ["MINIMAX_API_KEY"] = fallback
+
 def _load_config() -> dict:
     _load_env_files()
     for p in CONFIG_PATHS:
@@ -243,12 +260,15 @@ class OpenAIProvider(ImageProvider):
         self._base_url = base_url
 
     def generate(self, prompt: str, size: str) -> bytes:
+        # gpt-image-2 / dall-e-3 不支持 response_format 参数，去掉避免 400
+        payload = {"model": self._model, "prompt": prompt, "n": 1, "size": size}
+        if self._model not in ("gpt-image-2", "gpt-image-1.5", "dall-e-3"):
+            payload["response_format"] = "url"
         resp = requests.post(
             f"{self._base_url}/images/generations",
             headers={"Content-Type": "application/json",
                      "Authorization": f"Bearer {self._api_key}"},
-            json={"model": self._model, "prompt": prompt,
-                  "n": 1, "size": size, "response_format": "url"},
+            json=payload,
             timeout=120,
         )
         data = resp.json()
@@ -801,7 +821,13 @@ def main():
     try:
         config = _load_config()
         if args.provider:
-            config.setdefault("image", {})["provider"] = args.provider
+            image_cfg = config.setdefault("image", {})
+            providers = image_cfg.get("providers")
+            if isinstance(providers, list):
+                selected = [p for p in providers if p.get("provider") == args.provider]
+                image_cfg["providers"] = selected or [{"provider": args.provider}]
+            else:
+                image_cfg["provider"] = args.provider
         path = generate_image(args.prompt, args.output, size=args.size, config=config)
         print(f"Image saved: {path}")
     except Exception as e:

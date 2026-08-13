@@ -2,23 +2,30 @@
 """
 Backfill quality_signals field from old notes field in client history.yaml.
 
-Extracts subagent review scores from notes string and writes them as
-structured fields, enabling future stats-driven selection.
+Pure text-level surgery — does NOT yaml.parse or yaml.dump the article body,
+because the file has a mix of intact YAML (col 2 fields) and Task-3 damaged
+YAML (col 0 fields from a previous broken implementation). Parsing either
+form is unreliable; preserving original text and appending `quality_signals:`
+to the article's tail is the only safe operation.
 
-Reads each article independently (split on `^- date:` markers) so a
-single malformed article does not cause the whole file to be dropped.
+Approach:
+  1. Split text on `\n- date:` boundaries (gives article blocks).
+  2. For each block, scan for extractable review scores in the `notes:`
+     field via regex over the raw text (no YAML parsing).
+  3. If scores found AND no `quality_signals:` already present, append a
+     new `  quality_signals:` block to the END of the article's text.
+  4. Reassemble with the original `\n- date:` joiner.
 
 Usage:
     python3 backfill_signals.py --client zhulv
     python3 backfill_signals.py --client zhulv --dry-run
 """
+from __future__ import annotations
+
 import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Optional
-
-import yaml
 
 SKILL_DIR = Path(__file__).parent.parent
 
@@ -31,69 +38,71 @@ DIMENSION_PATTERNS = {
     "framework_fit": r"客户契合\s*(\d+(?:\.\d+)?)\s*[/／]",
 }
 
+# Total review score: "一审 X/70"
+TOTAL_SCORE_PATTERN = re.compile(r"(?:一审|二审|三审)?\s*(\d+(?:\.\d+)?)\s*[/／]\s*70")
 
-def extract_signals(notes: str) -> Optional[dict]:
-    """Extract quality signals from notes string. Returns None if nothing extractable."""
-    if not notes:
+
+def extract_signals_from_text(block: str) -> dict | None:
+    """Find `notes:` value in block text and extract scores. No YAML parse."""
+    # Notes can span multiple lines (continuation at col 2). Capture first line
+    # + any continuation lines (starting with 2 spaces).
+    notes_match = re.search(r"notes:\s*([^\n]+(?:\n  [^\n]+)*)", block)
+    if not notes_match:
         return None
+    notes_text = notes_match.group(1)
     signals = {}
     for field, pattern in DIMENSION_PATTERNS.items():
-        match = re.search(pattern, notes)
+        match = re.search(pattern, notes_text)
         if match:
             try:
                 signals[field] = float(match.group(1))
             except ValueError:
                 pass
+    # Total /70 score (matches any "N/70" not preceded by dimension name; if
+    # both per-dim and total exist we keep per-dim, with total as review_score).
+    total_match = TOTAL_SCORE_PATTERN.search(notes_text)
+    if total_match:
+        try:
+            signals["review_score"] = float(total_match.group(1))
+        except ValueError:
+            pass
     return signals if signals else None
 
 
-def parse_articles(history_path: Path):
-    """Parse history.yaml article-by-article so one bad block doesn't drop the file.
+def format_signals_yaml(signals: dict) -> str:
+    """Render signals as a YAML block at col 2 indent, matching the file's style.
 
-    Returns (articles, raw_blocks) where:
-      - articles is a list of parsed dicts (one per well-formed block)
-      - raw_blocks is the corresponding list of raw text blocks in order;
-        blocks that failed to parse are kept as their raw text so we can
-        round-trip the file without data loss.
+    Output has NO leading or trailing newline — caller controls spacing by
+    prepending a newline before the block.
     """
-    text = history_path.read_text(encoding="utf-8")
-    chunks = text.split("\n- date:")
-    # First chunk already starts with `- date:`; the rest got split off.
-    raw_blocks = []
-    if chunks:
-        raw_blocks.append(chunks[0])
-        for c in chunks[1:]:
-            raw_blocks.append("- date:" + c)
-
-    articles = []
-    parsed_flags = []
-    fallback_used = 0
-    for raw in raw_blocks:
-        if not raw.strip():
-            parsed_flags.append(True)  # empty block, nothing to keep
-            continue
-        try:
-            parsed = yaml.safe_load(raw)
-        except yaml.YAMLError as e:
-            fallback_used += 1
-            print(f"[warn] could not parse one article block; keeping as raw text: {e}", file=sys.stderr)
-            articles.append(None)
-            parsed_flags.append(False)
-            continue
-        if isinstance(parsed, list):
-            # A chunk may contain multiple articles if a separator slipped by
-            for item in parsed:
-                if isinstance(item, dict):
-                    articles.append(item)
-            parsed_flags.append(True)
-        elif isinstance(parsed, dict):
-            articles.append(parsed)
-            parsed_flags.append(True)
+    lines = ["  quality_signals:"]
+    for key, value in signals.items():
+        if isinstance(value, float) and value.is_integer():
+            value_str = f"{int(value)}.0"
         else:
-            parsed_flags.append(True)
-    if fallback_used:
-        print(f"[warn] {fallback_used} article(s) could not be parsed; kept as-is", file=sys.stderr)
-    return articles, raw_blocks, parsed_flags
+            value_str = str(value)
+        lines.append(f"    {key}: {value_str}")
+    return "\n".join(lines)
+
+
+def split_blocks(text: str) -> tuple[list[str], list[str]]:
+    """Split history.yaml into per-article raw blocks.
+
+    Each block ends at the next `\n- date:` boundary. The first block
+    INCLUDES its leading `- date:` (file starts with one). Subsequent
+    blocks have their `- date:` prefix stripped — caller rejoins with
+    `\n- date:`.
+    """
+    parts = text.split("\n- date:")
+    blocks = []
+    separators = []
+    if parts:
+        blocks.append(parts[0])
+        separators.append("")
+    for part in parts[1:]:
+        blocks.append(part)
+        separators.append("\n- date:")
+    return blocks, separators
 
 
 def main():
@@ -107,55 +116,52 @@ def main():
         print(f"[error] history.yaml not found for client '{args.client}'", file=sys.stderr)
         sys.exit(1)
 
-    articles, raw_blocks, parsed_flags = parse_articles(history_path)
+    original_text = history_path.read_text(encoding="utf-8")
+    blocks, separators = split_blocks(original_text)
 
+    new_blocks = []
     updated = 0
     skipped = 0
-    art_iter = iter(articles)
-    out_blocks = []
-    for raw, ok in zip(raw_blocks, parsed_flags):
-        if not ok:
-            # Keep malformed block verbatim (preserves the corrupted article)
-            out_blocks.append(raw)
+    no_notes = 0
+
+    for block in blocks:
+        if not block.strip():
+            new_blocks.append(block)
             continue
-        if not raw.strip():
-            continue
-        article = next(art_iter, None)
-        if article is None:
-            out_blocks.append(raw)
-            continue
-        notes = article.get("notes", "") or ""
-        signals = extract_signals(notes)
-        if signals:
-            article["quality_signals"] = signals
-            updated += 1
-        else:
+
+        if "quality_signals:" in block:
             skipped += 1
-        # Dump as a single-item list so we get the `- ` list-item marker back,
-        # matching the original file's structure.
-        dumped = yaml.dump(
-            [article],
-            allow_unicode=True,
-            default_flow_style=False,
-            sort_keys=False,
-            indent=2,
-        )
-        # `dumped` ends with a trailing newline; strip it so joining with the
-        # next block doesn't introduce a blank line gap.
-        out_blocks.append(dumped.rstrip("\n"))
+            new_blocks.append(block)
+            continue
+
+        signals = extract_signals_from_text(block)
+        if not signals:
+            no_notes += 1
+            new_blocks.append(block)
+            continue
+
+        # Append signals block to end of article's raw text.
+        # Find the last non-empty line and append after it.
+        stripped = block.rstrip("\n")
+        new_block = stripped + "\n" + format_signals_yaml(signals) + "\n"
+        new_blocks.append(new_block)
+        updated += 1
 
     if args.dry_run:
-        print(f"[dry-run] Would update {updated} articles, skip {skipped}")
+        print(f"[dry-run] Would update {updated} articles, skip {skipped}, no-notes {no_notes}")
         return
 
-    output = "\n".join(out_blocks)
+    parts = []
+    for sep, block in zip(separators, new_blocks):
+        parts.append(sep + block)
+    output = "".join(parts)
     if not output.endswith("\n"):
         output += "\n"
-    with open(history_path, "w", encoding="utf-8") as f:
-        f.write(output)
 
+    history_path.write_text(output, encoding="utf-8")
     print(f"Updated {updated} articles with quality_signals")
-    print(f"Skipped {skipped} (no extractable scores)")
+    print(f"Skipped {skipped} (already had quality_signals)")
+    print(f"No-notes {no_notes} (no extractable scores)")
 
 
 if __name__ == "__main__":

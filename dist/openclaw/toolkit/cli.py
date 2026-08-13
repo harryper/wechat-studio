@@ -273,6 +273,29 @@ def _sanitize_article_markdown(md_text: str) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _strip_publish_metadata(md_text: str) -> str:
+    """Drop publish-only metadata from the markdown body sent to WeChat.
+
+    The LLM-generated article starts with:
+      - ``# 标题`` (used as ``draft.title`` — don't duplicate in body)
+      - ``> **分类**：...`` blockquote (internal metadata — never publish)
+      - ``![封面](images/cover.jpg)`` (uploaded as ``thumb_media_id`` —
+        don't duplicate in body)
+
+    Body starts at the first ``## `` heading. The caller must extract
+    images and title from the original ``md_text`` *before* calling this.
+    """
+    lines = md_text.splitlines()
+    body_start = None
+    for i, line in enumerate(lines):
+        if re.match(r"^##\s+", line):
+            body_start = i
+            break
+    if body_start is None:
+        return md_text
+    return "\n".join(lines[body_start:]).lstrip("\n")
+
+
 def _extract_images_from_md(md_text: str) -> list[str]:
     """Extract image paths from markdown text."""
     import re
@@ -299,12 +322,20 @@ def cmd_publish(args):
     xiaohu_themes = list_xiaohu_themes()
     use_xiaohu = theme_name in xiaohu_themes
 
+    # Extract images and title from the FULL markdown so the cover can
+    # still be picked up by the upload_thumb auto-detect below. The body
+    # we send to WeChat is the same markdown stripped of publish-only
+    # metadata (H1 / category blockquote / cover image) — those belong
+    # in draft.title, internal metadata, and thumb_media_id respectively,
+    # not in the rendered article body.
+    images = _extract_images_from_md(md_text)
+    publish_body = _strip_publish_metadata(md_text)
+
     if use_xiaohu:
         # Use xiaohu formatter (full container syntax support)
         print(f"Using xiaohu formatter with theme: {theme_name}")
-        html = xiaohu_format_article(md_text, theme=theme_name)
+        html = xiaohu_format_article(publish_body, theme=theme_name)
         title, digest = _extract_title_and_digest(md_text)
-        images = _extract_images_from_md(md_text)
         print(f"Title: {title}")
         print(f"Digest: {digest[:60]}...")
         print(f"Images found: {len(images)}")
@@ -312,11 +343,10 @@ def cmd_publish(args):
         # Use legacy wechat-studio converter
         theme = load_theme(theme_name)
         converter = WeChatConverter(theme=theme)
-        result = converter.convert(md_text)
+        result = converter.convert(publish_body)
         html = result.html
         title = result.title
         digest = result.digest
-        images = result.images
         print(f"Title: {result.title}")
         print(f"Digest: {result.digest[:60]}...")
         print(f"Images found: {len(images)}")
@@ -348,12 +378,29 @@ def cmd_publish(args):
         else:
             print(f"Warning: image not found: {img_src} (searched {md_dir})")
 
-    # Upload cover image if provided
+    # Upload cover image — explicit --cover wins; otherwise auto-detect
+    # any inline image whose basename matches `cover.*`. The webapp's
+    # publish flow only passes --theme, so without auto-detection
+    # thumb_media_id stays None and WeChat draft/add returns 40007
+    # "invalid media_id".
     thumb_media_id = None
-    if args.cover:
-        print(f"Uploading cover: {args.cover}")
-        thumb_media_id = upload_thumb(token, args.cover)
-        print(f"  -> media_id: {thumb_media_id}")
+    cover_src = args.cover
+    if not cover_src:
+        for img_src in images:
+            if re.search(r"/cover\.(jpg|jpeg|png|gif|webp)$", img_src, re.IGNORECASE):
+                cover_src = img_src
+                break
+
+    if cover_src:
+        cover_path = Path(cover_src)
+        if not cover_path.is_absolute() and not cover_path.exists():
+            cover_path = md_dir / cover_src
+        if cover_path.exists():
+            print(f"Uploading cover: {cover_src}")
+            thumb_media_id = upload_thumb(token, str(cover_path))
+            print(f"  -> media_id: {thumb_media_id}")
+        else:
+            print(f"Warning: cover image not found: {cover_src} (searched {md_dir})")
 
     # Create draft
     title = args.title or title or Path(args.input).stem

@@ -12,6 +12,11 @@ services:
       - ./scripts:/app/scripts
       - ./references:/app/references
       - ./config.yaml:/app/config.yaml:ro
+      # xiaohu-wechat-format is a sibling skill in `skills/`, not part of
+      # this repo. toolkit/xiaohu_formatter.py walks up 3 dirs from its
+      # own location to find it; mount at /xiaohu-wechat-format so that
+      # walk resolves inside the container.
+      - /root/.openclaw/workspace/skills/xiaohu-wechat-format:/xiaohu-wechat-format:ro
       # Host-side logs are picked up by logrotate on the host.
       - /var/log/wechat-studio:/app/logs
     environment:

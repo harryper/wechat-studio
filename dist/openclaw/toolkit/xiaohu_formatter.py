@@ -64,7 +64,8 @@ def format_article(markdown_text: str, theme: str = "terracotta") -> str:
                 article_html = candidates[0]
 
         if article_html and article_html.exists():
-            return article_html.read_text(encoding="utf-8")
+            html = article_html.read_text(encoding="utf-8")
+            return _stabilize_mac_window_dots(html)
         else:
             raise RuntimeError(
                 f"xiaohu format.py failed to produce article.html.\n"
@@ -75,6 +76,25 @@ def format_article(markdown_text: str, theme: str = "terracotta") -> str:
         tmp_md.unlink(missing_ok=True)
         # Keep tmp_out for debugging if needed
 
+
+
+def _stabilize_mac_window_dots(html: str) -> str:
+    """Make code-block macOS traffic-light dots survive WeChat sanitization.
+
+    Some WeChat paths strip empty inline-block spans used as CSS-only dots.
+    Replace those with real colored bullet characters inside the same spans.
+    """
+    replacements = {
+        '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;background:#FF5F56"></span>':
+            '<span style="display:inline-block;width:12px;height:12px;line-height:12px;border-radius:50%;margin-right:8px;color:#FF5F56;font-size:18px;font-family:Arial, sans-serif">●</span>',
+        '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;background:#FFBD2E"></span>':
+            '<span style="display:inline-block;width:12px;height:12px;line-height:12px;border-radius:50%;margin-right:8px;color:#FFBD2E;font-size:18px;font-family:Arial, sans-serif">●</span>',
+        '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;background:#27C93F"></span>':
+            '<span style="display:inline-block;width:12px;height:12px;line-height:12px;border-radius:50%;margin-right:8px;color:#27C93F;font-size:18px;font-family:Arial, sans-serif">●</span>',
+    }
+    for old, new in replacements.items():
+        html = html.replace(old, new)
+    return html
 
 def list_xiaohu_themes() -> list[str]:
     """Return list of available xiaohu theme names."""
