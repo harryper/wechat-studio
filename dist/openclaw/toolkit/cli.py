@@ -12,6 +12,7 @@ import argparse
 import sys
 import webbrowser
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -138,94 +139,6 @@ def cmd_preview(args):
 
 
 
-def cmd_publish(args):
-    """Convert, upload images, and create WeChat draft."""
-    cfg = load_config()
-    wechat_cfg = cfg.get("wechat", {})
-
-    # Resolve from CLI args → config.yaml fallback
-    appid = args.appid or wechat_cfg.get("appid")
-    secret = args.secret or wechat_cfg.get("secret")
-    theme_name = args.theme or cfg.get("theme", "professional-clean")
-    author = args.author or wechat_cfg.get("author")
-
-    if not appid or not secret:
-        print("Error: --appid and --secret required (or set in config.yaml)", file=sys.stderr)
-        sys.exit(1)
-
-    md_text = Path(args.input).read_text(encoding='utf-8')
-    xiaohu_themes = list_xiaohu_themes()
-    use_xiaohu = theme_name in xiaohu_themes
-
-    if use_xiaohu:
-        # Use xiaohu formatter (full container syntax support)
-        print(f"Using xiaohu formatter, theme: {theme_name}")
-        html = xiaohu_format_article(md_text, theme=theme_name)
-        title, digest = _extract_title_and_digest(md_text)
-        images = _extract_images_from_md(md_text)
-        print(f"Title: {title}")
-        print(f"Digest: {digest[:60]}...")
-        print(f"Images found: {len(images)}")
-    else:
-        # Use legacy wechat-studio converter
-        theme = load_theme(theme_name)
-        converter = WeChatConverter(theme=theme)
-        result = converter.convert_file(args.input)
-        html = result.html
-        title = result.title
-        digest = result.digest
-        images = result.images
-        print(f"Title: {result.title}")
-        print(f"Digest: {result.digest[:60]}...")
-        print(f"Images found: {len(images)}")
-
-    # Get access token
-    token = get_access_token(appid, secret)
-    print("Access token obtained.")
-
-    # Upload images referenced in article and replace src
-    md_dir = Path(args.input).resolve().parent
-
-    for img_src in images:
-        if img_src.startswith(("http://", "https://")):
-            print(f"Skipping remote image: {img_src}")
-            continue
-
-        img_path = Path(img_src)
-        if not img_path.is_absolute():
-            if not img_path.exists():
-                img_path = md_dir / img_src
-
-        if img_path.exists():
-            print(f"Uploading image: {img_src}")
-            wechat_url = upload_image(token, str(img_path))
-            html = html.replace(img_src, wechat_url)
-            print(f"  -> {wechat_url}")
-        else:
-            print(f"Warning: image not found: {img_src} (searched {md_dir})")
-
-    # Upload cover image if provided
-    thumb_media_id = None
-    if args.cover:
-        print(f"Uploading cover: {args.cover}")
-        thumb_media_id = upload_thumb(token, args.cover)
-        print(f"  -> media_id: {thumb_media_id}")
-
-    # Create draft
-    title = args.title or title or Path(args.input).stem
-    digest_arg = args.digest or digest
-    draft = create_draft(
-        access_token=token,
-        title=title,
-        html=html,
-        digest=digest_arg,
-        thumb_media_id=thumb_media_id,
-        author=author,
-    )
-
-    print(f"\nDraft created! media_id: {draft.media_id}")
-
-
 def _extract_title_and_digest(md_text: str):
     """Extract title (H1) and digest from markdown text."""
     import re
@@ -302,6 +215,15 @@ def _extract_images_from_md(md_text: str) -> list[str]:
     return re.findall(r'!\[.*?\]\((.*?)\)', md_text)
 
 
+def _find_cover_source(images: list[str]) -> Optional[str]:
+    """Return the first image explicitly named ``cover.<supported-ext>``."""
+    pattern = re.compile(
+        r"(?:^|[\\/])cover\.(?:jpe?g|png|gif|webp)(?:[?#].*)?$",
+        re.IGNORECASE,
+    )
+    return next((src for src in images if pattern.search(src)), None)
+
+
 def cmd_publish(args):
     """Convert, upload images, and create WeChat draft."""
     cfg = load_config()
@@ -329,13 +251,14 @@ def cmd_publish(args):
     # in draft.title, internal metadata, and thumb_media_id respectively,
     # not in the rendered article body.
     images = _extract_images_from_md(md_text)
+    title, digest = _extract_title_and_digest(md_text)
     publish_body = _strip_publish_metadata(md_text)
+    cover_src = args.cover or _find_cover_source(images)
 
     if use_xiaohu:
         # Use xiaohu formatter (full container syntax support)
         print(f"Using xiaohu formatter with theme: {theme_name}")
         html = xiaohu_format_article(publish_body, theme=theme_name)
-        title, digest = _extract_title_and_digest(md_text)
         print(f"Title: {title}")
         print(f"Digest: {digest[:60]}...")
         print(f"Images found: {len(images)}")
@@ -345,10 +268,9 @@ def cmd_publish(args):
         converter = WeChatConverter(theme=theme)
         result = converter.convert(publish_body)
         html = result.html
-        title = result.title
-        digest = result.digest
-        print(f"Title: {result.title}")
-        print(f"Digest: {result.digest[:60]}...")
+        digest = digest or result.digest
+        print(f"Title: {title}")
+        print(f"Digest: {digest[:60]}...")
         print(f"Images found: {len(images)}")
 
     # Get access token
@@ -360,6 +282,9 @@ def cmd_publish(args):
     md_dir = Path(args.input).resolve().parent
 
     for img_src in images:
+        # The cover is uploaded as thumb_media_id below, not as body media.
+        if img_src == cover_src:
+            continue
         if img_src.startswith(("http://", "https://")):
             print(f"Skipping remote image: {img_src}")
             continue
@@ -384,12 +309,6 @@ def cmd_publish(args):
     # thumb_media_id stays None and WeChat draft/add returns 40007
     # "invalid media_id".
     thumb_media_id = None
-    cover_src = args.cover
-    if not cover_src:
-        for img_src in images:
-            if re.search(r"/cover\.(jpg|jpeg|png|gif|webp)$", img_src, re.IGNORECASE):
-                cover_src = img_src
-                break
 
     if cover_src:
         cover_path = Path(cover_src)

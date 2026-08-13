@@ -1,167 +1,109 @@
 # WeChat Studio
 
-公众号 AI 内容工作台：从热点抓取到草稿箱推送，一句话完成全部流程。
+公众号 AI 内容工作台：从知识库选题、长文写作和配图，到主题预览和微信草稿箱。
 
-## 一句话安装
+## 快速开始
 
 ```bash
 git clone --depth 1 https://github.com/harryper/wechat-studio.git ~/.openclaw/skills/wechat-studio
-cd ~/.openclaw/skills/wechat-studio && pip install -r requirements.txt
-```
-
-安装后对 OpenClaw 说「写一篇公众号文章」即可触发完整流程。
-
-## 环境配置
-
-```bash
-# 必填环境变量（config.yaml 会自动读取 ${VAR} 占位符）
-export WECHAT_APPID="wx_your_appid"
-export WECHAT_SECRET="your_appsecret"
-export OPENAI_API_KEY="sk-..."          # GPT-Image-2 生图
-export DOUBAO_API_KEY="your_volc_key"    # 豆包 fallback 生图
-
-# 可选：将配置写入 config.yaml（敏感值用 ${VAR} 语法，无需明文）
+cd ~/.openclaw/skills/wechat-studio
+pip install -r requirements.txt
 cp config.example.yaml config.yaml
 ```
 
-不填也能跑，降级为本地 HTML 预览 + 图片提示词输出。
+可以通过两种入口使用：
 
-## 工作流程（8 步）
+- OpenClaw：说“写一篇公众号文章”，由 `SKILL.md` 编排流程。
+- Web 工作台：运行 `docker compose up -d --build`，访问 `http://localhost:9997`。
 
-```
-用户说「写一篇公众号文章」
-  │
-  ▼
-Step 1  确定客户 → 读取 clients/{name}/style.yaml
-  │
-  ▼
-Step 2  热点抓取 + 历史去重 + SEO评分
-  │       → POST `https://api.yucoder.cn/api/hot/list` 聚合热榜（知乎/微博/虎扑/贴吧/B站/抖音），失败则补调用最多1次
-  │       → 读取 history.yaml 避开近7天已写选题
-  │
-  ▼
-Step 3  选题 → 综合评分最高的题自动进入写作
-  │
-  ▼
-Step 4  文章写作 → H1标题 + 1500-2500字 + 框架大纲
-  │         （playbook 优先于通用写作规范）
-  │
-  ▼
-评审  subagent 严审 → 7维评分（标题钩力/开头留人/情绪共鸣/金句密度/结尾引导/立场强度/开头攻击性）
-  │         → 按评审意见修改 → 条件二审/终审
-  │
-  ▼
-Step 5  SEO优化 → 3个备选标题 + 摘要 + 5个标签 + 去AI痕迹
-  │
-  ▼
-Step 6  视觉AI → GPT-Image-2 生成封面+2-3张内文图
-  │         （GPT 失败 → 豆包降级）
-  │         → file 校验 PNG 1536x1024 → 替换占位符
-  │
-  ▼
-Step 7  排版发布 → 38套主题 → 微信草稿箱
-  │         （xiaohu主题走专用引擎，其他走基础降级）
-  │
-  ▼
-Step 8  写入 history.yaml → 回复用户（含编辑建议）
+## 实际主流程
+
+OpenClaw 和 Web 工作台共用同一套内容契约：
+
+```text
+1. 从 references/knowledge-corpus.yaml 选题
+2. 按标题关键词选择学术写作框架
+3. 通过 Anthropic 兼容 API 生成 2500–4000 字 Markdown 长文
+4. 生成封面 + 2 张内文图；单张失败时使用 PIL 占位图
+5. 使用所选主题生成 HTML 预览，并保存预览历史
+6. 用户确认后上传图片并创建微信草稿
 ```
 
-**默认全自动**，不需要停下来确认。说「交互模式」才在选题/框架/配图处暂停。
+发布时会自动：
 
-### 评审规则
+- 从 H1 提取微信标题；
+- 从正文移除 H1、内部分类元数据和封面图；
+- 识别名为 `cover.jpg/png/webp/gif` 的图片作为微信封面；
+- 追加“本文为逻辑梳理，非学术研究”声明。
 
-初稿写完后，进入独立 subagent 严审（7 维评分）：
+Web 工作台不会自动执行热点抓取、客户 Playbook、SEO 备选标题、人工改稿学习和数据复盘；这些是 Agent/CLI 的可选扩展能力。
 
-| 维度 | 门槛 | 处理方式 |
-|------|------|---------|
-| 标题钩力 | ≥ 8 | < 8 必须重做标题 |
-| 开头留人 | ≥ 8 | < 8 重写前 3 段 |
-| 开头攻击性 | ≥ 7.5 | < 7.5 重写前 3 段 |
-| 金句密度 | ≥ 8 | < 8 补至少 2 句可截图硬句 |
-| 结尾引导 | ≥ 7.5 | < 7.5 重写结尾 |
-
-评审输出必须给出「是否可发」结论；不通过时最多列出 3 条必须修改项（按优先级排序）。
-
-## 排版主题（38 套）
-
-| 引擎 | 主题数 | 支持特性 |
-|------|--------|---------|
-| xiaohu 引擎 | 33 套 | 完整容器语法（:::dialogue / :::callout 等）+ 暗黑模式 |
-| 原生引擎 | 5 套 | `terracotta` / `sspai` / `coffee-house` / `newspaper` 等 |
+## 配置
 
 ```bash
-# 预览全部 38 套主题
-python3 toolkit/cli.py gallery article.md --no-open -o theme-gallery.html
+# 文章生成（Web 生成预览必需）
+export ANTHROPIC_BASE_URL="https://your-endpoint.example"
+export ANTHROPIC_AUTH_TOKEN="your-token"
+export ANTHROPIC_MODEL="MiniMax-M3"
 
-# 查看主题列表
+# 微信草稿发布时必需
+export WECHAT_APPID="wx_your_appid"
+export WECHAT_SECRET="your_appsecret"
+
+# 可选生图供应商；都未配置时 Web 使用本地占位图
+export MINIMAX_API_KEY="your-minimax-key"
+export OPENAI_API_KEY="sk-..."
+export DOUBAO_API_KEY="your-volc-key"
+
+# Web 登录；部署时请务必替换默认值
+export APP_PASSWORD="a-strong-password"
+export APP_COOKIE_SECRET="a-long-random-secret"
+```
+
+`config.yaml` 支持 `${VAR}` 和 `${VAR:-default}` 占位符，不要在仓库中写入明文密钥。
+
+## 主题与排版
+
+项目内置 38 套主题。可用的 xiaohu 主题走外部 `xiaohu-wechat-format` 引擎，其余主题走项目原生转换器。
+
+```bash
 python3 toolkit/cli.py themes
+python3 toolkit/cli.py gallery article.md --no-open -o theme-gallery.html
+python3 toolkit/cli.py preview article.md --theme terracotta --no-open
+python3 toolkit/cli.py publish article.md --cover cover.png --title "标题"
 ```
 
-## 核心功能
+`xiaohu-wechat-format` 当前是兄弟目录依赖；Docker Compose 默认将宿主机的 `/root/.openclaw/workspace/skills/xiaohu-wechat-format` 挂载到容器。
 
-| 功能 | 说明 |
-|------|------|
-| 热点抓取 | 微博 / 头条 / 百度热搜，评分排序 |
-| AI 写作 | 选题 → 框架 → 写作 → SEO → 质量自检 |
-| 视觉 AI | GPT-Image-2 优先，豆包降级；生成后 file 校验格式 |
-| 排版引擎 | 38 套主题，xiaohu 引擎 vs 原生引擎路由 |
-| 草稿箱发布 | 直接推送到公众号草稿箱 |
-| 效果复盘 | 微信数据 API 回填阅读/分享/点赞 |
-| 风格学习 | 导入已发布文章 → 建立个人风格库 |
-
-## CLI 工具
+## 可选扩展
 
 ```bash
-# 排版预览（本地HTML）
-python3 toolkit/cli.py preview article.md --theme terracotta
-
-# 推送到公众号草稿箱
-python3 toolkit/cli.py publish article.md --cover cover.png --title "标题"
-
-# 抓热点
 python3 scripts/fetch_hotspots.py --limit 20
-
-# 微信数据复盘
-python3 scripts/fetch_stats.py --client zhulv --days 7
-
-# 文章质量检测
 python3 scripts/humanness_score.py article.md --verbose
+python3 scripts/fetch_stats.py --client CLIENT --days 7
+python3 scripts/learn_edits.py --client CLIENT --draft draft.md --final final.md
 ```
 
-## 目录结构
+## 目录
 
-```
+```text
 wechat-studio/
-├── SKILL.md                      # 主管道（AI Agent 触发后加载）
-├── config.yaml                   # 环境变量注入，无明文密钥
-├── toolkit/
-│   ├── cli.py                    # preview / publish / gallery / themes
-│   ├── publisher.py              # 微信草稿箱 API
-│   ├── image_gen.py              # 多 provider 生图（含自动 fallback）
-│   ├── xiaohu_formatter.py       # xiaohu 引擎（33 套主题）
-│   └── themes/                   # 38 套主题 YAML
-├── scripts/
-│   ├── fetch_hotspots.py         # 多平台热点抓取
-│   ├── fetch_stats.py            # 微信数据回填
-│   ├── humanness_score.py        # 文章质量检测（11 项）
-│   └── learn_edits.py            # 风格学习飞轮
-├── clients/                      # 客户配置（不在 git 中）
-│   └── zhulv/
-│       ├── style.yaml            # 风格配置
-│       ├── history.yaml          # 发布记录
-│       └── gpt-image-2-prompts.md # 客户级视觉规范
-└── references/                   # 按需加载的规范文档
+├── SKILL.md                 # OpenClaw 编排指令
+├── webapp/                  # Flask Web 工作台和预览历史
+├── toolkit/                 # 排版、生图、微信 API 和发布 CLI
+├── scripts/                 # 写作、选题、检测和学习工具
+├── references/              # 知识库与按需加载的写作规范
+├── toolkit/themes/          # 38 套主题 YAML
+├── clients/                 # 本地客户配置，不进 Git
+└── dist/openclaw/           # scripts/build_openclaw.py 生成的分发包
 ```
 
-## 环境变量速查
+## 验证
 
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `WECHAT_APPID` | ✅ | 微信公众号 appid |
-| `WECHAT_SECRET` | ✅ | 微信公众号 secret |
-| `OPENAI_API_KEY` | ✅ | GPT-Image-2 生图 |
-| `DOUBAO_API_KEY` | 选 | 豆包/即梦 fallback |
-
----
+```bash
+python3 -m pytest -q
+python3 -m compileall -q toolkit scripts webapp
+python3 scripts/diagnose.py --json
+```
 
 MIT · https://github.com/harryper/wechat-studio
