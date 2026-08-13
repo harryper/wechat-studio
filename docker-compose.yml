@@ -44,6 +44,9 @@ services:
       - GUNICORN_MAX_REQUESTS=500
       - GUNICORN_MAX_REQUESTS_JITTER=100
       - GUNICORN_LOG_LEVEL=info
+      # One background generation job per web worker; two Gunicorn workers
+      # still allow two jobs concurrently without exhausting image memory.
+      - WS_JOB_WORKERS=1
     deploy:
       resources:
         limits:

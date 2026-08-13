@@ -15,8 +15,7 @@ The workdir layout:
       article.html
       images/
         cover.jpg
-        inline-1.jpg
-        inline-2.jpg
+        inline-1.jpg ... inline-4.jpg
 
 The iframe loads ``article.html`` directly from the workdir via
 ``/api/history/<id>/html`` (relative ``<img src="images/X.jpg">`` paths
@@ -34,8 +33,10 @@ provider is configured.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import shutil
 import subprocess
 import sys
 import uuid
@@ -84,19 +85,19 @@ def _cover_prompt(topic: Dict[str, Any]) -> str:
 
 
 def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
-    """Inline-image prompts — one per major section after §1 and §3."""
+    """Build four complementary prompts for the article's major sections."""
     title = (topic.get("title") or "").strip()
     kps = _key_points(topic)
     fallback = title or "概念图示"
+    treatments = [
+        "起源或经典场景示意，简洁线稿，浅色背景，无文字",
+        "核心机制的概念插画，层次清晰，低饱和度，无文字",
+        "关键证据或实验场景，纪实学术插画，无文字",
+        "现代应用与边界的视觉隐喻，编辑感构图，无文字",
+    ]
     return [
-        (
-            f"「{kps[1] if len(kps) >= 2 else kps[0] if kps else fallback}」"
-            "经典场景示意，简洁线稿风格，浅色背景，无文字"
-        ),
-        (
-            f"「{kps[2] if len(kps) >= 3 else kps[0] if kps else fallback}」"
-            "现代应用示意，数据可视化风格，无文字"
-        ),
+        f"「{kps[i] if i < len(kps) else kps[-1] if kps else fallback}」{treatment}"
+        for i, treatment in enumerate(treatments)
     ]
 
 
@@ -104,7 +105,7 @@ def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
 def _placeholder_image(topic: Dict[str, Any], role: str) -> bytes:
     """Generate a deterministic placeholder JPEG.
 
-    ``role`` is "cover", "inline-1", or "inline-2" — controls palette.
+    ``role`` is "cover" or one of "inline-1" ... "inline-4".
 
     The placeholder text is ASCII-only (topic id + category) because the
     container ships without CJK fonts and PIL's default bitmap font
@@ -118,7 +119,7 @@ def _placeholder_image(topic: Dict[str, Any], role: str) -> bytes:
         bg = (24, 28, 36)
         fg = (220, 224, 232)
         accent = (255, 77, 109)
-    elif role == "inline-1":
+    elif role in {"inline-1", "inline-3"}:
         size = (800, 450)
         bg = (244, 240, 232)
         fg = (62, 50, 40)
@@ -138,7 +139,7 @@ def _placeholder_image(topic: Dict[str, Any], role: str) -> bytes:
 
     topic_id = (topic.get("id") or "").strip()
     category = (topic.get("category") or "").strip()
-    role_label = {"cover": "PLACEHOLDER COVER", "inline-1": "PLACEHOLDER", "inline-2": "PLACEHOLDER"}.get(role, "PLACEHOLDER")
+    role_label = "PLACEHOLDER COVER" if role == "cover" else "PLACEHOLDER"
 
     # Try a few common font paths; fall back to PIL default bitmap font.
     def _font(size: int):
@@ -188,34 +189,22 @@ def _find_after_quote(lines: List[str]) -> Optional[int]:
     return None
 
 
-def _find_before_section(lines: List[str], candidates: Tuple[str, ...]) -> Optional[int]:
-    """Insert position just before the first matching section heading."""
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped.startswith("## "):
-            continue
-        for cand in candidates:
-            if cand in stripped:
-                return i
-    return None
-
-
 def _insert_images(md: str, cover_rel: str, inline_rels: List[str]) -> str:
     """Insert image references at sensible positions in the markdown."""
     lines = md.split("\n")
     inserts: List[Tuple[int, str]] = []
 
     cover_pos = _find_after_quote(lines)
-    if cover_pos is not None:
-        inserts.append((cover_pos, f"![封面]({cover_rel})"))
+    if cover_pos is None:
+        cover_pos = next((i + 2 for i, line in enumerate(lines) if line.startswith("# ")), 0)
+    inserts.append((cover_pos, f"![封面]({cover_rel})"))
 
-    inline1_pos = _find_before_section(lines, ("§ 2", "## § 3", "三、"))
-    if inline1_pos is not None and inline_rels:
-        inserts.append((inline1_pos, f"![配图]({inline_rels[0]})"))
-
-    inline2_pos = _find_before_section(lines, ("§ 4", "## 反直觉", "四、", "局限"))
-    if inline2_pos is not None and len(inline_rels) >= 2:
-        inserts.append((inline2_pos, f"![配图]({inline_rels[1]})"))
+    headings = [
+        i for i, line in enumerate(lines)
+        if line.strip().startswith("## ") and "摘要" not in line
+    ]
+    for pos, rel in zip(headings[:4], inline_rels):
+        inserts.append((pos, f"![配图]({rel})"))
 
     for pos, text in sorted(inserts, key=lambda x: -x[0]):
         lines.insert(pos, text)
@@ -224,7 +213,35 @@ def _insert_images(md: str, cover_rel: str, inline_rels: List[str]) -> str:
 
 
 # ── 步骤 1：写文章（仅 LLM，无图片）─────────────────────────────────────
-def write_article_to_workdir(topic: Dict[str, Any], workdir: Optional[Path] = None) -> Tuple[Path, List[str]]:
+def default_image_rels() -> List[str]:
+    return ["images/cover.jpg", *[f"images/inline-{i}.jpg" for i in range(1, 5)]]
+
+
+def ensure_default_image_references(workdir: Path) -> List[str]:
+    """Upgrade an existing article to the current cover + four-inline layout."""
+    md_path = workdir / "article.md"
+    markdown = md_path.read_text(encoding="utf-8")
+    rels = default_image_rels()
+    if all(rel in markdown for rel in rels):
+        return rels
+    default_set = set(rels)
+    lines = [
+        line for line in markdown.splitlines()
+        if not (
+            line.strip().startswith("![")
+            and any(f"]({rel})" in line for rel in default_set)
+        )
+    ]
+    upgraded = _insert_images("\n".join(lines), rels[0], rels[1:])
+    md_path.write_text(upgraded.rstrip() + "\n", encoding="utf-8")
+    return rels
+
+
+def write_article_to_workdir(
+    topic: Dict[str, Any],
+    workdir: Optional[Path] = None,
+    client: Optional[str] = None,
+) -> Tuple[Path, List[str]]:
     """Write the article markdown into a workdir.
 
     If ``workdir`` is None, creates a fresh one under WORKDIR_ROOT. Otherwise
@@ -239,10 +256,10 @@ def write_article_to_workdir(topic: Dict[str, Any], workdir: Optional[Path] = No
         workdir.mkdir()
     (workdir / "images").mkdir(exist_ok=True)
 
-    md_text = write_article(topic)
+    md_text = write_article(topic, client=client)
 
     cover_rel = "images/cover.jpg"
-    inline_rels = ["images/inline-1.jpg", "images/inline-2.jpg"]
+    inline_rels = [f"images/inline-{i}.jpg" for i in range(1, 5)]
     md_with_images = _insert_images(md_text, cover_rel, inline_rels)
 
     md_file = workdir / "article.md"
@@ -257,37 +274,71 @@ def generate_images_in_workdir(
     topic: Dict[str, Any],
     image_rels: List[str],
 ) -> str:
-    """Generate cover + 2 inline images.
+    """Generate one cover and four inline images.
 
     Tries the configured AI providers (image_gen.generate_image). If every
     provider fails — usually because no API key is configured or quota is
     exhausted — falls back to local PIL placeholder images so the preview
-    still has visual structure. Returns one of ``"real"`` or ``"placeholder"``
-    so the UI can tell the user which mode was used.
+    still has visual structure. Returns ``"real"``, ``"mixed"``, or
+    ``"placeholder"`` so the UI can report the aggregate mode accurately.
     """
     img_dir = workdir / "images"
     img_dir.mkdir(exist_ok=True)
 
-    roles = ["cover", "inline-1", "inline-2"]
+    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
     prompts = [_cover_prompt(topic), *_inline_prompts(topic)]
 
     ai_failed: List[str] = []
+    image_states: Dict[str, str] = {}
     for rel, role, prompt in zip(image_rels, roles, prompts):
         target = img_dir / Path(rel).name
         try:
             generate_image(prompt, str(target), size="cover" if role == "cover" else "article")
+            image_states[role] = "real"
             continue
         except Exception as e:
             ai_failed.append(f"{role}: {type(e).__name__}: {e}")
             log.warning("AI image gen failed for %s: %s", role, e)
             # Drop a placeholder so the file always exists for cli.py preview / publish.
             target.write_bytes(_placeholder_image(topic, role))
+            image_states[role] = "placeholder"
 
+    (workdir / "image-status.json").write_text(
+        json.dumps(image_states, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     if ai_failed:
-        log.warning("all AI providers failed; using PIL placeholders. errors=%s",
+        log.warning("some AI images failed; using PIL placeholders. errors=%s",
                     "; ".join(ai_failed)[:400])
-        return "placeholder"
+        return "placeholder" if len(ai_failed) == len(roles) else "mixed"
     return "real"
+
+
+def generate_single_image_in_workdir(workdir: Path, topic: Dict[str, Any], role: str) -> str:
+    """Regenerate one image and return the aggregate image mode."""
+    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
+    if role not in roles:
+        raise ValueError(f"不支持的图片位置：{role}")
+    prompts = dict(zip(roles, [_cover_prompt(topic), *_inline_prompts(topic)]))
+    target = workdir / "images" / f"{role}.jpg"
+    state_path = workdir / "image-status.json"
+    try:
+        states = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        states = {}
+    try:
+        generate_image(prompts[role], str(target), size="cover" if role == "cover" else "article")
+        states[role] = "real"
+    except Exception as e:
+        log.warning("AI image regeneration failed for %s: %s", role, e)
+        target.write_bytes(_placeholder_image(topic, role))
+        states[role] = "placeholder"
+    state_path.write_text(json.dumps(states, ensure_ascii=False, indent=2), encoding="utf-8")
+    values = [states.get(item, "placeholder") for item in roles]
+    if all(value == "real" for value in values):
+        return "real"
+    if all(value == "placeholder" for value in values):
+        return "placeholder"
+    return "mixed"
 
 
 # ── 步骤 3：渲染预览（cli.py preview）──────────────────────────────────
@@ -344,21 +395,24 @@ def _write_preview_html(workdir: Path, theme: str) -> None:
             timeout=60,
         )
         xiaohu_out = html_file.parent / md_file.stem / "preview.html"
-        if rerun.returncode != 0 or not xiaohu_out.exists():
-            raise RuntimeError(
-                f"xiaohu fallback 失败 (rc={rerun.returncode}): "
-                f"{(rerun.stderr or rerun.stdout).strip()}"
+        try:
+            if rerun.returncode != 0 or not xiaohu_out.exists():
+                raise RuntimeError(
+                    f"xiaohu fallback 失败 (rc={rerun.returncode}): "
+                    f"{(rerun.stderr or rerun.stdout).strip()}"
+                )
+            # xiaohu writes `<stem>/preview.html` inside the parent dir; move it
+            # to article.html so the iframe loader finds it.
+            xiaohu_html = xiaohu_out.read_text(encoding="utf-8")
+            wrapped = (
+                '<!DOCTYPE html><html lang="zh-CN"><head>'
+                '<meta charset="UTF-8"><title>Preview</title>'
+                '<style>body{margin:0;padding:0;background:#f5f5f5}</style>'
+                '</head><body>' + xiaohu_html + '</body></html>'
             )
-        # xiaohu writes `<stem>/preview.html` inside the parent dir; move it
-        # to article.html so the iframe loader finds it.
-        xiaohu_html = xiaohu_out.read_text(encoding="utf-8")
-        wrapped = (
-            '<!DOCTYPE html><html lang="zh-CN"><head>'
-            '<meta charset="UTF-8"><title>Preview</title>'
-            '<style>body{margin:0;padding:0;background:#f5f5f5}</style>'
-            '</head><body>' + xiaohu_html + '</body></html>'
-        )
-        html_file.write_text(wrapped, encoding="utf-8")
+            html_file.write_text(wrapped, encoding="utf-8")
+        finally:
+            shutil.rmtree(xiaohu_out.parent, ignore_errors=True)
 
 
 # xiaohu-wechat-format 的 preview 只输出 body { max-width, ... } 一段，

@@ -118,7 +118,35 @@ def _build_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(base_url=base_url, auth_token=api_key)
 
 
-def _build_prompt(topic: Dict[str, Any]) -> str:
+def _load_client_context(client: Optional[str]) -> str:
+    """Load optional style/playbook context for Web and CLI generation."""
+    if not client:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", client):
+        raise RuntimeError("客户名只能包含字母、数字、下划线和连字符。")
+    client_dir = SKILL_DIR / "clients" / client
+    chunks = []
+    style_path = client_dir / "style.yaml"
+    if style_path.exists():
+        try:
+            import yaml
+            style = yaml.safe_load(style_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as e:
+            raise RuntimeError(f"读取客户 style.yaml 失败：{e}") from e
+        selected = {
+            key: style.get(key)
+            for key in ("tone", "voice", "content_style", "blacklist")
+            if style.get(key)
+        }
+        if selected:
+            chunks.append("客户风格：\n" + yaml.safe_dump(selected, allow_unicode=True, sort_keys=False))
+    playbook_path = client_dir / "playbook.md"
+    if playbook_path.exists():
+        chunks.append("客户 Playbook（优先于通用风格）：\n" + playbook_path.read_text(encoding="utf-8"))
+    return "\n\n".join(chunks)
+
+
+def _build_prompt(topic: Dict[str, Any], client: Optional[str] = None) -> str:
     outline = _build_outline(topic)
     key_points = topic.get("key_points") or []
     kp_lines = "\n".join(f"- {p}" for p in key_points) or "-（暂无）"
@@ -129,6 +157,8 @@ def _build_prompt(topic: Dict[str, Any]) -> str:
         if caution == "yes"
         else "无需特别警示，按主题本身的张力展开。"
     )
+    client_context = _load_client_context(client)
+    client_section = f"\n\n{client_context}" if client_context else ""
     return f"""你是「微信公众号·知识科普」专栏的撰稿人，正在为一篇深度科普长文打底。请按 Markdown 输出正文，禁止任何额外评论。
 
 主题信息：
@@ -151,6 +181,7 @@ def _build_prompt(topic: Dict[str, Any]) -> str:
 - 不需要加任何插图占位符，图片由后续流程单独插入
 - 不需要写免责声明 — 由系统统一注入（"本文为逻辑梳理，非学术研究"）
 - 注意：{caution_note}
+{client_section}
 
 直接输出 Markdown 正文，开头是 `# 标题`，中间用 ## 切分章节。不要任何开场白或收尾评论。"""
 
@@ -184,6 +215,7 @@ def _enforce_title(text: str, fallback_title: str) -> str:
 def write_article(
     topic: Dict[str, Any],
     *,
+    client: Optional[str] = None,
     model: Optional[str] = None,
     max_tokens: int = 4096,
     timeout: int = 240,
@@ -196,7 +228,7 @@ def write_article(
     """
     client = _build_client()
     chosen_model = model or os.environ.get("ANTHROPIC_MODEL", "MiniMax-M3")
-    prompt = _build_prompt(topic)
+    prompt = _build_prompt(topic, client=client)
 
     try:
         resp = client.messages.create(

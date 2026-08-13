@@ -12,6 +12,7 @@ Usage:
 import subprocess
 import tempfile
 import uuid
+import shutil
 from pathlib import Path
 
 
@@ -74,7 +75,7 @@ def format_article(markdown_text: str, theme: str = "terracotta") -> str:
     finally:
         # Cleanup temp files
         tmp_md.unlink(missing_ok=True)
-        # Keep tmp_out for debugging if needed
+        shutil.rmtree(tmp_out, ignore_errors=True)
 
 
 

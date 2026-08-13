@@ -50,11 +50,13 @@ python3 {baseDir}/scripts/write_article.py --topic {topic_id} --out {markdown_pa
 
 ### 4. 配图
 
-读取 `references/visual-prompts.md`。客户存在 `gpt-image-2-prompts.md` 时将其作为覆盖层。默认生成：
+读取 `references/visual-prompts.md`。客户存在 `gpt-image-2-prompts.md` 时将其作为覆盖层。默认生成 5 张图：
 
 - `images/cover.jpg`：封面；
 - `images/inline-1.jpg`：前半部论点配图；
-- `images/inline-2.jpg`：后半部论点配图。
+- `images/inline-2.jpg`：核心机制配图；
+- `images/inline-3.jpg`：证据/实验配图；
+- `images/inline-4.jpg`：应用/边界配图。
 
 使用 `toolkit/image_gen.py` 中的供应商链。单张生成失败时，Web 工作台用 PIL 占位图保持预览可用；Agent 直接流程则保留成功图片并说明失败项。不得把占位图当作真实 AI 图片汇报。
 
@@ -89,9 +91,11 @@ python3 {baseDir}/toolkit/cli.py publish {markdown_path} \
 
 ## Web 工作台边界
 
-Web 页面实际执行且仅执行：知识库选题、同步 LLM 长文写作、封面和 2 张内文图、主题预览、Web 历史，以及用户点击后的微信草稿发布。
+Web 页面将 LLM 长文写作、5 张图和排版作为后台任务执行，通过 `job_id` 轮询进度。任务完成后支持在线编辑 Markdown、换主题、只重写文章、重生全部图片或指定图片。
 
-Web 不会自动执行热点抓取、SEO 备选标题、Blacklist、客户 Playbook、人工改稿学习或数据复盘。不得声称 Web 已完成这些步骤。
+Web 可选加载客户 Style/Playbook，并在生成后及发布前检查标题 Blacklist、AI 痕迹分、标题长度、图片完整性、封面和占位图。Blacklist 或必需文件检查失败时不得发布。
+
+Web 不会自动执行热点抓取、SEO 备选标题、人工改稿学习或数据复盘。
 
 ## 可选扩展
 

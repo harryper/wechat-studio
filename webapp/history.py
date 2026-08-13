@@ -13,7 +13,7 @@ HistoryEntry = {
     topic_id, title, category, theme
     html: str,               # rendered themed HTML (with data: image URIs)
     workdir: str             # absolute path to /tmp/ws-render-XXX — used for publish
-    image_mode: str          # "real" | "placeholder"
+    image_mode: str          # "real" | "mixed" | "placeholder"
 }
 """
 
@@ -24,6 +24,7 @@ import os
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -35,6 +36,25 @@ _MAX_ENTRIES = int(os.environ.get("WS_HISTORY_MAX", "10"))
 _lock = threading.RLock()
 _entries: List[Dict[str, Any]] = []
 _next_id: int = 1
+
+
+@contextmanager
+def _locked():
+    """Serialize history mutations across threads and Gunicorn processes."""
+    with _lock:
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        lock_path = _DATA_DIR / ".history.lock"
+        with open(lock_path, "a+", encoding="utf-8") as lock_file:
+            try:
+                import fcntl
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            except ImportError:
+                fcntl = None
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _load() -> None:
@@ -79,7 +99,7 @@ def add(entry: Dict[str, Any]) -> int:
     /api/history/<id>/html instead.
     """
     global _next_id
-    with _lock:
+    with _locked():
         _load()
         clean = {k: v for k, v in entry.items() if k != "html"}
         new_entry = {"id": _next_id, "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -96,7 +116,7 @@ def add(entry: Dict[str, Any]) -> int:
 def delete(entry_id: int) -> bool:
     """Remove an entry by id. Returns True if it existed, False otherwise."""
     global _next_id
-    with _lock:
+    with _locked():
         _load()
         before = len(_entries)
         _entries[:] = [e for e in _entries if e["id"] != entry_id]
@@ -108,13 +128,13 @@ def delete(entry_id: int) -> bool:
 
 def list_entries() -> List[Dict[str, Any]]:
     """Return entries newest-first (most recent at index 0)."""
-    with _lock:
+    with _locked():
         _load()
         return list(reversed(_entries))
 
 
 def get(entry_id: int) -> Optional[Dict[str, Any]]:
-    with _lock:
+    with _locked():
         _load()
         for e in _entries:
             if e["id"] == entry_id:
@@ -122,9 +142,22 @@ def get(entry_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
+def update(entry_id: int, changes: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Update an existing entry and persist it. Immutable identity fields stay intact."""
+    with _locked():
+        _load()
+        for entry in _entries:
+            if entry["id"] == entry_id:
+                safe = {k: v for k, v in changes.items() if k not in {"id", "created_at", "workdir"}}
+                entry.update(safe)
+                _save()
+                return dict(entry)
+        return None
+
+
 def clear() -> None:
-    global _next_id
-    with _lock:
+    global _entries, _next_id
+    with _locked():
         _entries = []
         _next_id = 1
         if _HISTORY_FILE.exists():

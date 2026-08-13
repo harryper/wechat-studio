@@ -1,7 +1,7 @@
 # Gunicorn config for wechat-studio Web.
 # Single-user, single-pod: 2 workers is enough. Preview/publish are short
 # sync calls (cli.py subprocess); 60s timeout covers slow WeChat API.
-# Actual heavy work (image generation, theme learning) is NOT done here.
+# Heavy generation is dispatched to a background executor and polled by job id.
 
 import os
 

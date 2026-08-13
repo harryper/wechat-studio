@@ -196,6 +196,23 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
+  .work-toolbar {
+    display: none;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .work-toolbar.show { display: flex; }
+  .work-toolbar select { width: auto; min-width: 120px; }
+  .editor {
+    display: none;
+    flex: 1;
+    min-height: 620px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.65;
+  }
+  .editor.show { display: block; }
   .empty-state {
     color: var(--text-3);
     text-align: center;
@@ -325,13 +342,23 @@
 
     <aside>
       <h2 class="section-label">知识库长文</h2>
-      <p class="pipeline-note">选题 → 2500–4000 字框架写作 → 封面 + 2 张内文图 → 预览。<br>热点、SEO、Blacklist 和客户 Playbook 需通过 Agent/CLI 单独执行。</p>
+      <p class="pipeline-note">选题 → 2500–4000 字框架写作 → 封面 + 4 张内文图 → 预览。<br>生成在后台执行，可安全离开页面后再回看历史。</p>
 
       <div class="form-group">
         <label for="topic_id">主题</label>
         <select id="topic_id">
           {% for t in topics %}
           <option value="{{ t.id }}" data-category="{{ t.category }}">{{ t.id }} — {{ t.title }}（{{ t.category }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="client">客户风格（可选）</label>
+        <select id="client">
+          <option value="">通用知识库</option>
+          {% for client in clients %}
+          <option value="{{ client }}">{{ client }}（Style + Playbook）</option>
           {% endfor %}
         </select>
       </div>
@@ -355,6 +382,11 @@
         <button class="full" id="btn-publish" disabled>确认并推送到微信草稿</button>
       </div>
 
+      <div class="actions-row">
+        <button id="btn-preflight" disabled>发布前检查</button>
+        <button id="btn-edit" disabled>编辑 Markdown</button>
+      </div>
+
       <div class="status" id="status"></div>
 
       <div class="history-section">
@@ -366,10 +398,26 @@
     </aside>
 
     <main>
+      <div class="work-toolbar" id="work-toolbar">
+        <button id="btn-save-edit" style="display:none">保存并重新预览</button>
+        <button id="btn-cancel-edit" style="display:none">取消编辑</button>
+        <button id="btn-regen-article">只重写文章</button>
+        <button id="btn-regen-images">重生全部图片</button>
+        <select id="image-role">
+          <option value="cover">封面</option>
+          <option value="inline-1">内文图 1</option>
+          <option value="inline-2">内文图 2</option>
+          <option value="inline-3">内文图 3</option>
+          <option value="inline-4">内文图 4</option>
+        </select>
+        <button id="btn-regen-image">重生选中图</button>
+        <button id="btn-apply-theme">应用当前主题</button>
+      </div>
       <div class="empty-state" id="empty-state">
         在左侧选择主题，点击「生成预览」开始<br>
         <small>写作约 30-180 秒（调用 LLM）+ 配图</small>
       </div>
+      <textarea id="markdown-editor" class="editor" spellcheck="false"></textarea>
       <iframe id="preview-frame" class="preview-frame" style="display:none;" sandbox="allow-same-origin"></iframe>
     </main>
   </div>
@@ -386,14 +434,19 @@
   (function () {
     const $ = (id) => document.getElementById(id);
     const topicSelect = $('topic_id');
+    const clientSelect = $('client');
     const themeInput = $('theme');
     const btnPreview = $('btn-preview');
     const btnPublish = $('btn-publish');
+    const btnPreflight = $('btn-preflight');
+    const btnEdit = $('btn-edit');
     const statusEl = $('status');
     const metaEl = $('topic-meta');
     const frame = $('preview-frame');
     const empty = $('empty-state');
     const historyList = $('history-list');
+    const toolbar = $('work-toolbar');
+    const editor = $('markdown-editor');
 
     // currentPreview: {history_id, topic, theme, html_url, image_mode}
     let currentPreview = null;
@@ -412,7 +465,7 @@
       const body = $('modal-body');
       modal.className = 'modal ' + kind;
       header.textContent = ({
-        success: '✅ 推送成功',
+        success: '✅ 操作成功',
         error:   '❌ 推送失败',
         warning: '⚠️ 注意',
       })[kind] || kind;
@@ -425,9 +478,12 @@
     }
 
     function setPreview(htmlUrl, restoreScroll) {
+      editor.classList.remove('show');
+      $('btn-save-edit').style.display = 'none';
+      $('btn-cancel-edit').style.display = 'none';
       frame.style.display = 'block';
       empty.style.display = 'none';
-      frame.src = htmlUrl;          // was: frame.srcdoc = html
+      frame.src = htmlUrl + (htmlUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
       if (restoreScroll !== undefined) {
         frame.onload = () => {
           writeIframeScroll(restoreScroll);
@@ -460,6 +516,8 @@
     function clearPreview() {
       frame.style.display = 'none';
       frame.srcdoc = '';
+      editor.classList.remove('show');
+      toolbar.classList.remove('show');
       empty.style.display = 'flex';
     }
 
@@ -474,7 +532,31 @@
       if (mode === 'real') {
         return '<span class="badge real">AI</span>';
       }
+      if (mode === 'mixed') {
+        return '<span class="badge placeholder">混合</span>';
+      }
       return '<span class="badge placeholder">占位</span>';
+    }
+
+    function setActions(enabled) {
+      btnPublish.disabled = !enabled;
+      btnPreflight.disabled = !enabled;
+      btnEdit.disabled = !enabled;
+      toolbar.classList.toggle('show', enabled);
+    }
+
+    function applyResult(result) {
+      currentPreview = result;
+      setPreview(result.html_url, undefined);
+      setMeta(currentPreview);
+      themeInput.value = result.theme;
+      setActions(true);
+    }
+
+    function imageModeText(mode) {
+      if (mode === 'real') return '5 张 AI 图';
+      if (mode === 'mixed') return 'AI 图 + 占位图';
+      return '全部占位图';
     }
 
     function renderHistory(entries) {
@@ -538,13 +620,15 @@
           theme: e.theme,
           html_url: data.html_url,
           image_mode: e.image_mode,
+          assessment: e.assessment || {},
         };
         const restore = prevId === e.id ? readIframeScroll() : 0;
         setPreview(data.html_url, restore);
         setMeta(currentPreview);
-        const modeText = e.image_mode === 'real' ? 'AI 生图' : '占位图';
+        if (e.client !== undefined) clientSelect.value = e.client || '';
+        const modeText = imageModeText(e.image_mode);
         showStatus('info', '📜 已回看历史 #' + e.id + ' · ' + modeText);
-        btnPublish.disabled = false;
+        setActions(true);
         // highlight active item
         for (const it of historyList.querySelectorAll('.history-item')) {
           it.classList.toggle('active', it.dataset.id === String(e.id));
@@ -566,7 +650,7 @@
         if (currentPreview && currentPreview.history_id === id) {
           clearPreview();
           currentPreview = null;
-          btnPublish.disabled = true;
+          setActions(false);
           metaEl.innerHTML = '&nbsp;';
         }
         await refreshHistory();
@@ -575,55 +659,155 @@
       }
     }
 
-    async function doPreview() {
-      const topicId = (topicSelect.value || '').trim();
-      const theme = themeInput.value;
-      if (!topicId) {
-        showStatus('error', '请选择主题');
-        return;
-      }
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const phaseNames = {
+      queued: '排队中', starting: '准备中', writing: '写作中',
+      images: '生成图片', render: '生成预览', quality: '质量检查', completed: '已完成'
+    };
+
+    async function pollJob(jobId) {
+      localStorage.setItem('wechat-studio-active-job', jobId);
       btnPreview.disabled = true;
-      btnPublish.disabled = true;
-      showStatus('info', '✍️  正在写作并配图（LLM 30-180 秒，图片另加 10-30 秒）…');
-      try {
-        const resp = await fetch('/api/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic_id: topicId, theme: theme }),
-        });
+      setActions(false);
+      while (true) {
+        const resp = await fetch('/api/jobs/' + jobId);
         const data = await resp.json();
-        if (!resp.ok || !data.ok) {
-          showStatus('error', data.error || '预览失败');
-          clearPreview();
-          metaEl.innerHTML = '&nbsp;';
-          currentPreview = null;
-          btnPublish.disabled = true;
+        if (!resp.ok || !data.ok) throw new Error(data.error || '查询任务失败');
+        const job = data.job;
+        showStatus('info', '⏳ ' + (phaseNames[job.phase] || job.phase) + ' · ' + job.progress + '%\n任务 ' + job.id.slice(0, 8));
+        if (job.status === 'completed') {
+          localStorage.removeItem('wechat-studio-active-job');
+          applyResult(job.result);
+          const kind = job.result.image_mode === 'real' ? 'success' : 'warning';
+          showStatus(kind, '预览已生成 · ' + imageModeText(job.result.image_mode));
+          await refreshHistory();
+          btnPreview.disabled = false;
           return;
         }
-        currentPreview = {
-          history_id: data.history_id,
-          topic: data.topic,
-          theme: data.theme,
-          html_url: data.html_url,
-          image_mode: data.image_mode,
-        };
-        setPreview(data.html_url, undefined);  // reset scroll on new preview
-        setMeta(currentPreview);
-        const modeText = data.image_mode === 'real' ? 'AI 生图' : '占位图（请配置图片 API key 以使用 AI 生图）';
-        const kind = data.image_mode === 'real' ? 'success' : 'warning';
-        showStatus(kind, '✅ 预览已生成 · ' + modeText);
-        btnPublish.disabled = false;
-        await refreshHistory();
+        if (job.status === 'failed') {
+          localStorage.removeItem('wechat-studio-active-job');
+          btnPreview.disabled = false;
+          throw new Error(job.error || '生成任务失败');
+        }
+        await sleep(1500);
+      }
+    }
+
+    async function submitJob(url, body) {
+      const resp = await fetch(url, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body || {}),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || '提交任务失败');
+      await pollJob(data.job_id);
+    }
+
+    async function doPreview() {
+      const topicId = (topicSelect.value || '').trim();
+      if (!topicId) return showStatus('error', '请选择主题');
+      try {
+        await submitJob('/api/jobs', {
+          topic_id: topicId,
+          theme: themeInput.value,
+          client: clientSelect.value,
+        });
       } catch (e) {
-        showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
-      } finally {
+        showStatus('error', '生成失败：' + (e.message || e));
         btnPreview.disabled = false;
       }
+    }
+
+    async function regenerate(stage, role) {
+      if (!currentPreview) return;
+      const label = stage === 'article' ? '重写文章' : stage === 'images' ? '重生全部图片' : '重生 ' + role;
+      if (!confirm('确认' + label + '？')) return;
+      try {
+        await submitJob('/api/history/' + currentPreview.history_id + '/regenerate', {stage, role});
+      } catch (e) {
+        showStatus('error', label + '失败：' + (e.message || e));
+        setActions(true);
+      }
+    }
+
+    async function openEditor() {
+      if (!currentPreview) return;
+      const resp = await fetch('/api/history/' + currentPreview.history_id + '/article');
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) return showStatus('error', data.error || '读取正文失败');
+      editor.value = data.markdown;
+      frame.style.display = 'none';
+      empty.style.display = 'none';
+      editor.classList.add('show');
+      $('btn-save-edit').style.display = '';
+      $('btn-cancel-edit').style.display = '';
+    }
+
+    async function saveEditor() {
+      if (!currentPreview) return;
+      $('btn-save-edit').disabled = true;
+      showStatus('info', '💾 保存并重新排版…');
+      try {
+        const resp = await fetch('/api/history/' + currentPreview.history_id + '/article', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({markdown: editor.value}),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || '保存失败');
+        currentPreview.topic.title = data.entry.title;
+        setPreview(data.html_url, 0);
+        setMeta(currentPreview);
+        showStatus('success', 'Markdown 已保存，预览已更新。');
+        await refreshHistory();
+      } catch (e) {
+        showStatus('error', e.message || e);
+      } finally {
+        $('btn-save-edit').disabled = false;
+      }
+    }
+
+    async function applyTheme() {
+      if (!currentPreview) return;
+      showStatus('info', '🎨 正在应用主题…');
+      const resp = await fetch('/api/history/' + currentPreview.history_id + '/theme', {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({theme: themeInput.value}),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) return showStatus('error', data.error || '主题更新失败');
+      currentPreview.theme = data.entry.theme;
+      setPreview(data.html_url, readIframeScroll());
+      setMeta(currentPreview);
+      showStatus('success', '主题已更新为 ' + currentPreview.theme);
+    }
+
+    async function showPreflight(display = true) {
+      if (!currentPreview) return null;
+      const resp = await fetch('/api/history/' + currentPreview.history_id + '/preflight');
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        showStatus('error', data.error || '发布前检查失败');
+        return null;
+      }
+      const icons = {pass: '✅', warn: '⚠️', error: '❌'};
+      const report = data.checks.map(item => icons[item.level] + ' ' + item.message).join('\n');
+      if (display) {
+        showStatus(data.publishable ? (data.checks.some(x => x.level === 'warn') ? 'warning' : 'success') : 'error', report);
+      }
+      return data;
     }
 
     async function doPublish() {
       if (!currentPreview) {
         showStatus('error', '请先生成预览或从历史中选择');
+        return;
+      }
+      const readiness = await showPreflight(false);
+      if (!readiness || !readiness.publishable) {
+        if (readiness) {
+          const failed = readiness.checks.filter(x => x.level === 'error').map(x => '❌ ' + x.message).join('\n');
+          showStatus('error', '发布前检查未通过：\n' + failed);
+        }
         return;
       }
       if (!confirm('确认推送到微信草稿箱？\n历史 # ' + currentPreview.history_id +
@@ -662,7 +846,21 @@
 
     btnPreview.addEventListener('click', doPreview);
     btnPublish.addEventListener('click', doPublish);
+    btnPreflight.addEventListener('click', showPreflight);
+    btnEdit.addEventListener('click', openEditor);
+    $('btn-save-edit').addEventListener('click', saveEditor);
+    $('btn-cancel-edit').addEventListener('click', () => setPreview(currentPreview.html_url, 0));
+    $('btn-regen-article').addEventListener('click', () => regenerate('article'));
+    $('btn-regen-images').addEventListener('click', () => regenerate('images'));
+    $('btn-regen-image').addEventListener('click', () => regenerate('image', $('image-role').value));
+    $('btn-apply-theme').addEventListener('click', applyTheme);
     refreshHistory();
+    const activeJob = localStorage.getItem('wechat-studio-active-job');
+    if (activeJob) pollJob(activeJob).catch(e => {
+      localStorage.removeItem('wechat-studio-active-job');
+      btnPreview.disabled = false;
+      showStatus('error', '恢复任务失败：' + (e.message || e));
+    });
   })();
   </script>
 </body>

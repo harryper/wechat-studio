@@ -25,6 +25,7 @@ COPY toolkit/ ./toolkit/
 COPY scripts/ ./scripts/
 COPY references/ ./references/
 COPY config.yaml ./
+COPY VERSION ./
 
 RUN mkdir -p /app/logs
 

@@ -9,10 +9,12 @@
   - 推送按钮 → cli.py publish
 
 数据流：
-  1. POST /api/preview          → write_article (LLM) + 图片 + cli.py preview → HTML
-  2. GET  /api/history          → 最近 N 条预览（最新在前）
-  3. GET  /api/history/<id>     → 某条预览的元数据（html 不重发，按需走 /api/preview 重生成）
-  4. POST /api/publish          → 用某条 history 的 workdir 跑 cli.py publish
+  1. POST /api/jobs             → 返回 job_id，后台写作 + 5 张图 + 排版
+  2. GET  /api/jobs/<id>        → 轮询阶段、进度和结果
+  3. GET/PUT article/theme      → 在线编辑和换主题
+  4. POST regenerate            → 异步重写文章或重生图片
+  5. GET preflight             → Blacklist、AI 痕迹、标题和图片检查
+  6. POST /api/publish          → 检查通过后用 workdir 创建微信草稿
 
 cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
@@ -20,24 +22,22 @@ cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 
 import hashlib
 import hmac
-import json
 import logging
 import os
+import re
 import subprocess
 import sys
-import tempfile
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from . import history
+from . import history, jobs, pipeline
 from .render import (
     _write_preview_html,
-    generate_images_in_workdir,
-    write_article_to_workdir,
 )
 
 # ── 路径常量 ─────────────────────────────────────────────────────────
@@ -45,6 +45,7 @@ from .render import (
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TOOLKIT_DIR = SKILL_DIR / "toolkit"
 CORPUS_PATH = SKILL_DIR / "references" / "knowledge-corpus.yaml"
+VERSION = (SKILL_DIR / "VERSION").read_text(encoding="utf-8").strip()
 
 # ── 访问鉴权 ─────────────────────────────────────────────────────────
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "asdf123456")
@@ -60,6 +61,10 @@ PUBLIC_PATHS = {"/login", "/api/health"}
 
 # cli.py 子进程超时（秒）。publish 含外网上传 60s 足够。
 SUBPROCESS_TIMEOUT = int(os.environ.get("SUBPROCESS_TIMEOUT", "60"))
+JOB_EXECUTOR = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("WS_JOB_WORKERS", "1")),
+    thread_name_prefix="wechat-studio-job",
+)
 
 # ── Flask 应用 ───────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -184,7 +189,12 @@ def index():
         for t in _load_corpus()
         if t.get("id")
     ]
-    return render_template("index.html", themes=themes, topics=topics)
+    clients_dir = SKILL_DIR / "clients"
+    clients = sorted(
+        p.name for p in clients_dir.iterdir()
+        if p.is_dir() and (p / "style.yaml").exists()
+    ) if clients_dir.exists() else []
+    return render_template("index.html", themes=themes, topics=topics, clients=clients)
 
 
 @app.route("/api/health")
@@ -193,23 +203,21 @@ def health():
         {
             "ok": True,
             "app": "wechat-studio",
-            "version": "1.3.0",
+            "version": VERSION,
             "corpus_size": len(_load_corpus()),
             "history_count": len(history.list_entries()),
         }
     )
 
 
+@app.route("/api/jobs", methods=["POST"])
 @app.route("/api/preview", methods=["POST"])
-def api_preview():
-    """Body: {topic_id, theme} → write_article + 图片 + cli preview → HTML。
-
-    LLM 调用通常 30-180 秒；图片另加 10-30 秒（AI）或 <1 秒（占位图）。
-    整个流程若超过 gunicorn 超时（默认 300s）会被 worker 回收并以 502/504 呈现。
-    """
+def api_create_job():
+    """Queue a full generation job and return immediately with a job id."""
     data = request.get_json(force=True, silent=True) or {}
     topic_id = (data.get("topic_id") or "").strip()
     theme = (data.get("theme") or "terracotta").strip() or "terracotta"
+    client = (data.get("client") or "").strip()
 
     if not topic_id:
         return jsonify({"ok": False, "error": "topic_id 不能为空",
@@ -220,57 +228,25 @@ def api_preview():
         return jsonify({"ok": False, "error": f"未找到主题 {topic_id}",
                         "phase": "input"}), 404
 
-    try:
-        workdir, image_rels = write_article_to_workdir(topic)
-    except RuntimeError as e:
-        log.error("LLM write failed: %s", e)
-        return jsonify({"ok": False, "error": str(e),
-                        "phase": "write"}), 500
+    if client and not re.fullmatch(r"[A-Za-z0-9_-]+", client):
+        return jsonify({"ok": False, "error": "客户名格式不合法", "phase": "input"}), 400
+    job = jobs.create("full", {"topic": topic, "theme": theme, "client": client})
+    JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
+    return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
 
-    try:
-        image_mode = generate_images_in_workdir(workdir, topic, image_rels)
-    except Exception as e:
-        log.error("image generation hard-failed: %s", e)
-        return jsonify({"ok": False, "error": f"图片生成失败：{e}",
-                        "phase": "images"}), 500
 
-    try:
-        _write_preview_html(workdir, theme)
-    except Exception as e:
-        log.error("preview render failed: %s", e)
-        return jsonify({"ok": False, "error": f"预览渲染失败：{e}",
-                        "phase": "render"}), 500
-
-    entry_id = history.add({
-        "topic_id": topic.get("id"),
-        "title": topic.get("title", ""),
-        "category": topic.get("category", ""),
-        "theme": theme,
-        "workdir": str(workdir),
-        "image_mode": image_mode,
-    })
-    log.info("preview %s → history #%d (%s)", topic_id, entry_id, image_mode)
-
-    return jsonify(
-        {
-            "ok": True,
-            "history_id": entry_id,
-            "html_url": f"/api/history/{entry_id}/html",
-            "image_mode": image_mode,
-            "topic": {
-                "id": topic.get("id"),
-                "title": topic.get("title"),
-                "category": topic.get("category"),
-            },
-            "theme": theme,
-        }
-    )
+@app.route("/api/jobs/<job_id>", methods=["GET"])
+def api_job_get(job_id: str):
+    job = jobs.get(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "任务不存在"}), 404
+    return jsonify({"ok": True, "job": job})
 
 
 # ── 历史记录 ──────────────────────────────────────────────────────────
 @app.route("/api/history", methods=["GET"])
 def api_history_list():
-    """返回最近 N 条预览（最新在前）。html 字段省略 — 详情走 /api/preview 重渲染或回看。"""
+    """返回最近 N 条预览（最新在前），HTML 通过独立端点加载。"""
     return jsonify(
         {
             "ok": True,
@@ -297,6 +273,87 @@ def api_history_get(entry_id: int):
     )
 
 
+@app.route("/api/history/<int:entry_id>/article", methods=["GET", "PUT"])
+def api_history_article(entry_id: int):
+    """Load or save editable Markdown; saving also refreshes the preview."""
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    md_path = Path(entry["workdir"]) / "article.md"
+    if not md_path.exists():
+        return jsonify({"ok": False, "error": "article.md 已丢失"}), 410
+    if request.method == "GET":
+        return jsonify({"ok": True, "markdown": md_path.read_text(encoding="utf-8")})
+
+    data = request.get_json(force=True, silent=True) or {}
+    markdown = data.get("markdown")
+    if not isinstance(markdown, str) or not markdown.strip():
+        return jsonify({"ok": False, "error": "markdown 不能为空"}), 400
+    if len(markdown.encode("utf-8")) > 512_000:
+        return jsonify({"ok": False, "error": "markdown 超过 512KB"}), 413
+    previous_markdown = md_path.read_text(encoding="utf-8")
+    md_path.write_text(markdown.rstrip() + "\n", encoding="utf-8")
+    try:
+        _write_preview_html(Path(entry["workdir"]), entry["theme"])
+        assessment = pipeline.assess_markdown(markdown, entry.get("client") or None)
+        updated = history.update(entry_id, {
+            "title": assessment["title"] or entry.get("title"),
+            "assessment": assessment,
+        })
+    except Exception as exc:
+        md_path.write_text(previous_markdown, encoding="utf-8")
+        return jsonify({"ok": False, "error": f"重新渲染失败：{exc}"}), 500
+    return jsonify({"ok": True, "entry": updated, "html_url": f"/api/history/{entry_id}/html"})
+
+
+@app.route("/api/history/<int:entry_id>/theme", methods=["PUT"])
+def api_history_theme(entry_id: int):
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    theme = (data.get("theme") or "").strip()
+    if not theme:
+        return jsonify({"ok": False, "error": "theme 不能为空"}), 400
+    try:
+        _write_preview_html(Path(entry["workdir"]), theme)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"主题渲染失败：{exc}"}), 500
+    updated = history.update(entry_id, {"theme": theme})
+    return jsonify({"ok": True, "entry": updated, "html_url": f"/api/history/{entry_id}/html"})
+
+
+@app.route("/api/history/<int:entry_id>/regenerate", methods=["POST"])
+def api_history_regenerate(entry_id: int):
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    topic = _find_topic(entry.get("topic_id", ""))
+    if topic is None:
+        return jsonify({"ok": False, "error": "原知识库主题已不存在"}), 410
+    data = request.get_json(force=True, silent=True) or {}
+    kind = (data.get("stage") or "").strip()
+    if kind not in {"article", "images", "image"}:
+        return jsonify({"ok": False, "error": "stage 必须是 article/images/image"}), 400
+    payload = {"history_id": entry_id, "topic": topic}
+    if kind == "image":
+        role = (data.get("role") or "").strip()
+        if role not in {"cover", "inline-1", "inline-2", "inline-3", "inline-4"}:
+            return jsonify({"ok": False, "error": "图片 role 不合法"}), 400
+        payload["role"] = role
+    job = jobs.create(kind, payload)
+    JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
+    return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
+
+
+@app.route("/api/history/<int:entry_id>/preflight", methods=["GET"])
+def api_history_preflight(entry_id: int):
+    entry = history.get(entry_id)
+    if entry is None:
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    return jsonify({"ok": True, **pipeline.preflight(entry)})
+
+
 # MIME types for /api/history/<id>/images/
 _HISTORY_IMAGE_MIME = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -311,8 +368,8 @@ def api_history_html(entry_id: int):
 
     The HTML has relative <img src="images/cover.jpg"> references that
     resolve to /api/history/<id>/images/cover.jpg via the iframe's base URL.
-    Cache-Control: private, max-age=3600 — the file is immutable for a given
-    history_id (preview never re-renders the same id).
+    Article edits and theme changes can re-render the same history id, so the
+    response is private but explicitly revalidated.
     """
     from .render import _inject_iframe_bootstrap  # local import keeps the webapp module-level surface tight
 
@@ -325,7 +382,7 @@ def api_history_html(entry_id: int):
                         "phase": "session"}), 410
     html = _inject_iframe_bootstrap(html_path.read_text(encoding="utf-8"))
     resp = Response(html, mimetype="text/html; charset=utf-8")
-    resp.headers["Cache-Control"] = "private, max-age=3600"
+    resp.headers["Cache-Control"] = "private, no-cache"
     return resp
 
 
@@ -351,7 +408,7 @@ def api_history_image(entry_id: int, name: str):
     mime = _HISTORY_IMAGE_MIME.get(ext, "application/octet-stream")
     data = img_path.read_bytes()
     resp = Response(data, mimetype=mime)
-    resp.headers["Cache-Control"] = "private, max-age=86400"
+    resp.headers["Cache-Control"] = "private, no-cache"
     return resp
 
 
@@ -410,17 +467,20 @@ def api_publish():
                         "error": "article.md 缺失 — workdir 可能已被清理",
                         "phase": "session"}), 500
 
-    # 切到 workdir 作为 cwd 父级 — cli.py 解析相对图片路径时使用
-    # md 文件所在目录，避免污染 SKILL_DIR。
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(str(workdir))
-        cli_result = _run_cli(
-            ["publish", str(md_path), "--theme", theme],
-            env=os.environ.copy(),
-        )
-    finally:
-        os.chdir(old_cwd)
+    readiness = pipeline.preflight(entry)
+    if not readiness["publishable"]:
+        return jsonify({
+            "ok": False,
+            "error": "发布前检查未通过",
+            "phase": "preflight",
+            "preflight": readiness,
+        }), 409
+
+    cli_result = _run_cli(
+        ["publish", str(md_path), "--theme", theme],
+        env=os.environ.copy(),
+        cwd=str(workdir),
+    )
 
     return jsonify(
         {
@@ -434,6 +494,7 @@ def api_publish():
                 "title": entry.get("title"),
             },
             "theme": theme,
+            "preflight": readiness,
         }
     )
 

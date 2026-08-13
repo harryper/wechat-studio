@@ -88,3 +88,90 @@ def test_write_preview_html_keeps_clean_output_intact(tmp_path, monkeypatch):
     render._write_preview_html(workdir, theme="terracotta")
 
     assert written.get("count", 0) == 1, "should not re-render when output is already clean"
+
+
+def test_insert_images_adds_cover_and_four_inline_images():
+    md = """# 标题
+
+> **分类**：心理学
+
+## 摘要
+
+摘要。
+
+## § 1 起源
+
+正文。
+
+## § 2 机制
+
+正文。
+
+## § 3 证据
+
+正文。
+
+## § 4 应用
+
+正文。
+"""
+    rels = [f"images/inline-{i}.jpg" for i in range(1, 5)]
+    result = render._insert_images(md, "images/cover.jpg", rels)
+    assert result.count("![") == 5
+    assert result.count("images/cover.jpg") == 1
+    for rel in rels:
+        assert result.count(rel) == 1
+
+
+def test_generate_images_reports_mixed_mode(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    (workdir / "images").mkdir(parents=True)
+    calls = []
+
+    def fake_generate(prompt, output, size):
+        calls.append(Path(output).name)
+        if output.endswith("inline-2.jpg"):
+            raise RuntimeError("quota")
+        Path(output).write_bytes(b"real")
+
+    monkeypatch.setattr(render, "generate_image", fake_generate)
+    topic = {"id": "kb-001", "title": "测试", "category": "psychology", "key_points": ["a", "b"]}
+    mode = render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+    assert mode == "mixed"
+    assert calls == ["cover.jpg", "inline-1.jpg", "inline-2.jpg", "inline-3.jpg", "inline-4.jpg"]
+    states = __import__("json").loads((workdir / "image-status.json").read_text())
+    assert states["inline-2"] == "placeholder"
+    assert all((workdir / rel).is_file() for rel in render.default_image_rels())
+
+
+def test_ensure_default_image_references_upgrades_legacy_article(tmp_path):
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    legacy = """# 标题
+
+> **分类**：心理学
+
+![封面](images/cover.jpg)
+
+## 摘要
+
+摘要。
+
+## § 1 起源
+
+![配图](images/inline-1.jpg)
+
+## § 2 机制
+
+## § 3 证据
+
+![配图](images/inline-2.jpg)
+
+## § 4 应用
+"""
+    (workdir / "article.md").write_text(legacy, encoding="utf-8")
+    render.ensure_default_image_references(workdir)
+    upgraded = (workdir / "article.md").read_text(encoding="utf-8")
+    assert upgraded.count("![") == 5
+    for rel in render.default_image_rels():
+        assert upgraded.count(rel) == 1

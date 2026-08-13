@@ -60,3 +60,20 @@ def test_delete_decrements_next_id_via_load(tmp_history_file):
     # reload should pick up the saved next_id so new adds don't collide
     raw2 = json.loads(tmp_history_file.read_text())
     assert raw2["next_id"] == saved_next_id
+
+
+def test_update_persists_mutable_fields_only(tmp_history_file):
+    eid = history.add({"topic_id": "kb-001", "title": "old", "workdir": "/tmp/a"})
+    updated = history.update(eid, {"title": "new", "theme": "ink", "id": 999, "workdir": "/tmp/b"})
+    assert updated["id"] == eid
+    assert updated["title"] == "new"
+    assert updated["theme"] == "ink"
+    assert updated["workdir"] == "/tmp/a"
+    assert history.get(eid)["title"] == "new"
+
+
+def test_clear_resets_in_memory_entries(tmp_history_file):
+    history.add({"topic_id": "kb-001", "title": "x", "workdir": "/tmp/a"})
+    history.clear()
+    assert history.list_entries() == []
+    assert history._next_id == 1
