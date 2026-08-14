@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "wechat-studio-data",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-08-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "secrets": {
+    "required": ["D1_API_TOKEN"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {"head_sampling_rate": 1},
+    "traces": {"enabled": true, "head_sampling_rate": 0.05}
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wechat-studio",
+      "database_id": "78b71caa-de93-4162-abc7-3db59438b1c0",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

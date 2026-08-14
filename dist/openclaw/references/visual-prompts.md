@@ -18,7 +18,7 @@
 - **先定主体与冲突，再定审美**：主体是谁、在做什么、和什么形成反差，必须先写。
 - **用镜头语言替代空泛修辞**：少写“高级感/氛围感/科技感”，多写 `35mm`, `eye-level`, `shallow depth of field`, `mixed color temperature`, `foreground obstruction`。
 - **把不完美写具体**：不要只写“不完美构图”，要写成 `slight motion blur on passersby`, `uneven sidewalk reflection`, `sweat on temple`, `creased shopping bag` 这种具体瑕疵。
-- **一张图只服务一个判断**：不要把三四个观点塞进一张图里，避免又像豆包，又像宣传图，又像海报。
+- **一张图只服务一个判断**：不要把三四个观点塞进一张图里，避免同时像宣传图、信息图和海报。
 
 ### 默认输出结构（Prompt as Code）
 
@@ -303,7 +303,7 @@ Aspect: 16:9
 - **视觉锚定**：每条提示词的 Colors 和 Style 字段必须引用封面提取的视觉锚点
 - 实体锚定规则同封面——每条提示词至少包含 2 个文章实体
 - 不要太复杂——手机屏幕上看，简洁的图比复杂的图好
-- 提示词用中文（seedream 中文理解强）
+- 提示词优先用中文，专有名词可保留英文
 - 每张图都提供一个**免费图库备选关键词**，以防生图效果不佳
 
 ---

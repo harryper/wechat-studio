@@ -3,7 +3,6 @@
 AI image generation module for WeChat Studio.
 
 Supports multiple providers via a simple abstraction:
-  - doubao-seedream (Volcengine Ark) — default, good for Chinese prompts
   - openai (DALL-E 3) — broad availability
   - gemini (Google Gemini Imagen) — multimodal image generation
   - dashscope (Alibaba Tongyi Wanxiang) — good for Chinese prompts
@@ -115,22 +114,22 @@ _DEFAULT_SQ = "1024x1024"
 
 SIZE_PRESETS = {
     "cover": {
-        "doubao": "2952x1256", "openai": _DEFAULT, "gemini": _DEFAULT,
+        "openai": _DEFAULT, "gemini": _DEFAULT,
         "dashscope": _DEFAULT, "minimax": _DEFAULT, "replicate": _DEFAULT,
         "azure_openai": _DEFAULT, "openrouter": _DEFAULT, "jimeng": _DEFAULT,
     },
     "article": {
-        "doubao": "2560x1440", "openai": _DEFAULT, "gemini": _DEFAULT,
+        "openai": _DEFAULT, "gemini": _DEFAULT,
         "dashscope": _DEFAULT, "minimax": _DEFAULT, "replicate": _DEFAULT,
         "azure_openai": _DEFAULT, "openrouter": _DEFAULT, "jimeng": _DEFAULT,
     },
     "vertical": {
-        "doubao": "1088x2560", "openai": _DEFAULT_V, "gemini": _DEFAULT_V,
+        "openai": _DEFAULT_V, "gemini": _DEFAULT_V,
         "dashscope": _DEFAULT_V, "minimax": _DEFAULT_V, "replicate": _DEFAULT_V,
         "azure_openai": _DEFAULT_V, "openrouter": _DEFAULT_V, "jimeng": _DEFAULT_V,
     },
     "square": {
-        "doubao": "2048x2048", "openai": _DEFAULT_SQ, "gemini": _DEFAULT_SQ,
+        "openai": _DEFAULT_SQ, "gemini": _DEFAULT_SQ,
         "dashscope": _DEFAULT_SQ, "minimax": _DEFAULT_SQ, "replicate": _DEFAULT_SQ,
         "azure_openai": _DEFAULT_SQ, "openrouter": _DEFAULT_SQ, "jimeng": _DEFAULT_SQ,
     },
@@ -204,49 +203,6 @@ class ImageProvider(abc.ABC):
 
 
 # --- Providers ---
-
-class DoubaoProvider(ImageProvider):
-    """doubao-seedream via Volcengine Ark API."""
-
-    provider_key = "doubao"
-
-    def __init__(self, api_key: str, model: str = "doubao-seedream-5-0-260128",
-                 base_url: str = "https://ark.cn-beijing.volces.com/api/v3", **_kw):
-        self._api_key = api_key
-        self._model = model
-        self._base_url = base_url
-
-    def resolve_size(self, preset: str) -> str:
-        if preset in SIZE_PRESETS:
-            return SIZE_PRESETS[preset].get(self.provider_key, "2560x1440")
-        if "x" in preset:
-            try:
-                w, h = (int(x) for x in preset.split("x", 1))
-                if w * h < 3686400:
-                    return "2560x1440" if w >= h else "1440x2560"
-            except ValueError:
-                pass
-        return preset
-
-    def generate(self, prompt: str, size: str) -> bytes:
-        resp = requests.post(
-            f"{self._base_url}/images/generations",
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {self._api_key}"},
-            json={"model": self._model, "prompt": prompt,
-                  "response_format": "url", "size": size,
-                  "stream": False, "watermark": False},
-            timeout=120,
-        )
-        data = resp.json()
-        if resp.status_code != 200:
-            raise ValueError(f"Doubao error ({resp.status_code}): "
-                             f"{data.get('error', {}).get('message', str(data))}")
-        url = data.get("data", [{}])[0].get("url")
-        if not url:
-            raise ValueError(f"No image URL: {data}")
-        return _download_image(url)
-
 
 class OpenAIProvider(ImageProvider):
     """OpenAI DALL-E 3 provider."""
@@ -657,7 +613,6 @@ class JimengProvider(ImageProvider):
 # --- Provider registry ---
 
 PROVIDERS = {
-    "doubao": DoubaoProvider,
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,
     "dashscope": DashScopeProvider,
@@ -671,7 +626,7 @@ PROVIDERS = {
 
 def _build_provider_from_entry(entry: dict) -> ImageProvider:
     """Build a single ImageProvider from a provider config entry."""
-    provider_name = entry.get("provider", "doubao")
+    provider_name = entry.get("provider", "minimax")
     api_key = entry.get("api_key")
 
     if isinstance(api_key, str):

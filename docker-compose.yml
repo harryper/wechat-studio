@@ -31,7 +31,6 @@ services:
       - WECHAT_SECRET=${WECHAT_SECRET:-}
       # Image generation providers (image_gen.py uses these).
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - DOUBAO_API_KEY=${DOUBAO_API_KEY:-}
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       # LLM endpoint for the knowledge-track article writer
       # (Anthropic-compatible Messages API).
@@ -50,6 +49,10 @@ services:
       - WS_JOB_WORKERS=1
       - WS_JOB_MAX=${WS_JOB_MAX:-100}
       - WS_HISTORY_MAX=${WS_HISTORY_MAX:-10}
+      - D1_API_URL=${D1_API_URL:-https://wechat-studio-data.harryperlau.workers.dev}
+      - D1_API_TOKEN_FILE=/run/secrets/d1_api_token
+    secrets:
+      - d1_api_token
     deploy:
       resources:
         limits:
@@ -72,3 +75,7 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+secrets:
+  d1_api_token:
+    file: ./.d1_api_token

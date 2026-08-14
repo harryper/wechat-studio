@@ -5,7 +5,7 @@
 微信公众号工作台，提供：
   - APP_PASSWORD 鉴权（HMAC cookie，30 天）
   - 主题选择 → LLM 写文章 + 配图 → 渲染预览
-  - 历史记录（最近 N 条，持久化到 webapp/_data/history.json）
+  - D1 内容历史、任务状态和发布状态
   - 推送按钮 → cli.py publish
 
 数据流：
@@ -32,10 +32,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from . import history, jobs, pipeline
+from . import history, jobs, pipeline, publications, topics
+from .d1_client import D1Error, client as d1
 from .render import (
     _write_preview_html,
 )
@@ -44,7 +44,6 @@ from .render import (
 # webapp/app.py → 父目录即 skill 根
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TOOLKIT_DIR = SKILL_DIR / "toolkit"
-CORPUS_PATH = SKILL_DIR / "references" / "knowledge-corpus.yaml"
 VERSION = (SKILL_DIR / "VERSION").read_text(encoding="utf-8").strip()
 
 # ── 访问鉴权 ─────────────────────────────────────────────────────────
@@ -75,26 +74,6 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("wechat-studio")
-
-
-# ── 工具函数 ─────────────────────────────────────────────────────────
-def _load_corpus() -> List[Dict[str, Any]]:
-    """读取知识库语料。文件不存在时返回空列表而不是抛异常 — 让 /api/health 仍可工作。"""
-    if not CORPUS_PATH.exists():
-        return []
-    try:
-        with open(CORPUS_PATH, encoding="utf-8") as f:
-            return yaml.safe_load(f) or []
-    except (yaml.YAMLError, OSError) as e:
-        log.error("failed to load corpus: %s", e)
-        return []
-
-
-def _find_topic(topic_id: str) -> Optional[Dict[str, Any]]:
-    for t in _load_corpus():
-        if t.get("id") == topic_id:
-            return t
-    return None
 
 
 def _run_cli(args: List[str], env: Dict[str, str],
@@ -184,30 +163,58 @@ def index():
     except Exception as e:
         log.error("failed to list themes: %s", e)
         themes = ["terracotta"]
-    topics = [
-        {"id": t.get("id"), "title": t.get("title"), "category": t.get("category")}
-        for t in _load_corpus()
-        if t.get("id")
-    ]
     clients_dir = SKILL_DIR / "clients"
     clients = sorted(
         p.name for p in clients_dir.iterdir()
         if p.is_dir() and (p / "style.yaml").exists()
     ) if clients_dir.exists() else []
-    return render_template("index.html", themes=themes, topics=topics, clients=clients)
+    return render_template("index.html", themes=themes, clients=clients)
 
 
 @app.route("/api/health")
 def health():
+    remote = d1.get("/health") or {}
     return jsonify(
         {
             "ok": True,
             "app": "wechat-studio",
             "version": VERSION,
-            "corpus_size": len(_load_corpus()),
-            "history_count": len(history.list_entries()),
+            "storage": "d1",
+            "corpus_size": remote.get("topics", 0),
+            "history_count": remote.get("articles", 0),
+            "job_count": remote.get("jobs", 0),
         }
     )
+
+
+@app.route("/api/topics", methods=["GET", "POST"])
+def api_topics():
+    """Search the topic center or create a custom topic."""
+    if request.method == "GET":
+        result = topics.list_topics(
+            query=(request.args.get("q") or "").strip(),
+            status=(request.args.get("status") or "available").strip(),
+            category=(request.args.get("category") or "").strip(),
+            source=(request.args.get("source") or "").strip(),
+            client_name=(request.args.get("client") or "").strip(),
+        )
+        return jsonify({"ok": True, **result})
+    data = request.get_json(force=True, silent=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"ok": False, "error": "主题标题不能为空"}), 400
+    topic = topics.create_topic({
+        "title": title,
+        "category": (data.get("category") or "custom").strip() or "custom",
+        "client": (data.get("client") or "").strip(),
+        "source": "custom",
+        "context": {
+            "origin": (data.get("origin") or "").strip(),
+            "key_points": data.get("key_points") or [],
+            "caution": "no",
+        },
+    })
+    return jsonify({"ok": True, "topic": topic}), 201
 
 
 @app.route("/api/jobs", methods=["POST"])
@@ -223,16 +230,33 @@ def api_create_job():
         return jsonify({"ok": False, "error": "topic_id 不能为空",
                         "phase": "input"}), 400
 
-    topic = _find_topic(topic_id)
+    topic = topics.get_topic(topic_id)
     if not topic:
         return jsonify({"ok": False, "error": f"未找到主题 {topic_id}",
                         "phase": "input"}), 404
 
     if client and not re.fullmatch(r"[A-Za-z0-9_-]+", client):
         return jsonify({"ok": False, "error": "客户名格式不合法", "phase": "input"}), 400
-    job = jobs.create("full", {"topic": topic, "theme": theme, "client": client})
+    entry_id = history.add({
+        "topic_id": topic["id"],
+        "title": topic["title"],
+        "category": topic.get("category", ""),
+        "theme": theme,
+        "client": client,
+        "status": "generating",
+    })
+    try:
+        job = jobs.create("full", {
+            "topic": topic,
+            "theme": theme,
+            "client": client,
+            "history_id": entry_id,
+        })
+    except Exception:
+        history.update(entry_id, {"status": "failed"})
+        raise
     JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
-    return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
+    return jsonify({"ok": True, "job_id": job["id"], "history_id": entry_id, "status": "queued"}), 202
 
 
 @app.route("/api/jobs/<job_id>", methods=["GET"])
@@ -279,11 +303,14 @@ def api_history_article(entry_id: int):
     entry = history.get(entry_id)
     if entry is None:
         return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    if request.method == "GET":
+        markdown = entry.get("markdown")
+        if not markdown:
+            return jsonify({"ok": False, "error": "D1 中没有正文内容"}), 410
+        return jsonify({"ok": True, "markdown": markdown})
     md_path = Path(entry["workdir"]) / "article.md"
     if not md_path.exists():
-        return jsonify({"ok": False, "error": "article.md 已丢失"}), 410
-    if request.method == "GET":
-        return jsonify({"ok": True, "markdown": md_path.read_text(encoding="utf-8")})
+        return jsonify({"ok": False, "error": "本地排版产物已丢失"}), 410
 
     data = request.get_json(force=True, silent=True) or {}
     markdown = data.get("markdown")
@@ -299,6 +326,8 @@ def api_history_article(entry_id: int):
         updated = history.update(entry_id, {
             "title": assessment["title"] or entry.get("title"),
             "assessment": assessment,
+            "markdown": markdown.rstrip() + "\n",
+            "status": "review",
         })
     except Exception as exc:
         md_path.write_text(previous_markdown, encoding="utf-8")
@@ -328,7 +357,7 @@ def api_history_regenerate(entry_id: int):
     entry = history.get(entry_id)
     if entry is None:
         return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
-    topic = _find_topic(entry.get("topic_id", ""))
+    topic = topics.get_topic(entry.get("topic_id", ""))
     if topic is None:
         return jsonify({"ok": False, "error": "原知识库主题已不存在"}), 410
     data = request.get_json(force=True, silent=True) or {}
@@ -341,7 +370,13 @@ def api_history_regenerate(entry_id: int):
         if role not in {"cover", "inline-1", "inline-2", "inline-3", "inline-4"}:
             return jsonify({"ok": False, "error": "图片 role 不合法"}), 400
         payload["role"] = role
-    job = jobs.create(kind, payload)
+    previous_status = entry.get("status") or "draft"
+    history.update(entry_id, {"status": "generating"})
+    try:
+        job = jobs.create(kind, payload)
+    except Exception:
+        history.update(entry_id, {"status": "failed", "details": {"previous_status": previous_status}})
+        raise
     JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
     return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
 
@@ -351,7 +386,10 @@ def api_history_preflight(entry_id: int):
     entry = history.get(entry_id)
     if entry is None:
         return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
-    return jsonify({"ok": True, **pipeline.preflight(entry)})
+    readiness = pipeline.preflight(entry)
+    if entry.get("status") not in {"pushed", "published", "archived", "generating", "failed"}:
+        history.update(entry_id, {"status": "ready" if readiness["publishable"] else "review"})
+    return jsonify({"ok": True, **readiness})
 
 
 # MIME types for /api/history/<id>/images/
@@ -482,6 +520,17 @@ def api_publish():
         cwd=str(workdir),
     )
 
+    media_match = re.search(r"Draft created! media_id:\s*(\S+)", cli_result["stdout"])
+    publications.record(
+        history_id,
+        status="pushed" if cli_result["ok"] else "failed",
+        remote_id=media_match.group(1) if media_match else None,
+        response={
+            "returncode": cli_result["returncode"],
+            "stdout": cli_result["stdout"],
+            "stderr": cli_result["stderr"],
+        },
+    )
     return jsonify(
         {
             "ok": cli_result["ok"],
@@ -511,6 +560,12 @@ def not_found(e):
 def server_error(e):
     log.error("500: %s\n%s", e, traceback.format_exc())
     return jsonify({"error": "internal server error"}), 500
+
+
+@app.errorhandler(D1Error)
+def d1_error(e):
+    log.error("D1 data service error: %s", e)
+    return jsonify({"ok": False, "error": str(e), "phase": "storage"}), 502
 
 
 # ── 入口 ─────────────────────────────────────────────────────────────

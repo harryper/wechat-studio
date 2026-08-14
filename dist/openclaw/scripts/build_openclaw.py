@@ -106,7 +106,7 @@ def build(output_dir: Path):
             if dst.exists():
                 shutil.rmtree(dst)
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
-                "__pycache__", "*.pyc", "*.pyo",
+                "__pycache__", "*.pyc", "*.pyo", "migrate_web_state_to_d1.py",
             ))
             print(f"  {d}/ → {dst}")
 

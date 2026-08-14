@@ -3,7 +3,7 @@
 #   WECHAT_APPID       - 微信公众号 appid
 #   WECHAT_SECRET      - 微信公众号 secret
 #   OPENAI_API_KEY     - OpenAI API Key（用于 gpt-image-2）
-#   DOUBAO_API_KEY     - 豆包 API Key（即梦/火山引擎）
+#   MINIMAX_API_KEY    - MiniMax API Key（文章生成 + 图片生成）
 # 可选：
 #   DASHSCOPE_API_KEY  - 阿里通义万相
 #   JIMENG_ACCESS_KEY  - 即梦 access_key_id
@@ -25,9 +25,6 @@ image:
       api_key: "${OPENAI_API_KEY}"
       model: "gpt-image-2"
       base_url: "https://api.openai.com/v1"
-    - provider: "doubao"
-      api_key: "${DOUBAO_API_KEY}"
-      model: "doubao-seedream-4-5-251128"
 
 # 默认排版主题
 theme: "terracotta"

@@ -23,8 +23,8 @@ resolve against the iframe's base URL to ``/api/history/<id>/images/...``).
 cli.py publish keeps the relative paths, since it uploads local files
 to WeChat and rewrites the URLs itself.
 
-Image strategy: try the configured AI providers (MiniMax / OpenAI /
-Doubao — whichever has quota + key) in order. If every provider fails,
+Image strategy: try the configured AI providers (MiniMax / OpenAI —
+whichever has quota + key) in order. If every provider fails,
 fall back to locally-generated placeholder images via PIL — deterministic
 color blocks with the topic title baked in via Pillow's default font.
 This keeps the WYSIWYG preview usable in environments where no AI image

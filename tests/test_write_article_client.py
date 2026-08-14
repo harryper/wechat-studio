@@ -19,6 +19,32 @@ class _LLMClient:
         self.messages = _Messages()
 
 
+def test_build_client_loads_minimax_key_from_project_env(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("MINIMAX_API_KEY=test-minimax-key\n", encoding="utf-8")
+    monkeypatch.setattr(write_article, "SKILL_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for key in (
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "MINIMAX_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    captured = {}
+
+    def fake_anthropic(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(write_article.anthropic, "Anthropic", fake_anthropic)
+
+    write_article._build_client()
+
+    assert captured["base_url"] == "https://api.minimaxi.com/anthropic"
+    assert captured["auth_token"] == "test-minimax-key"
+
+
 def test_client_context_loads_style_and_playbook(tmp_path, monkeypatch):
     client_dir = tmp_path / "clients" / "demo"
     client_dir.mkdir(parents=True)

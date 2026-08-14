@@ -4,8 +4,7 @@ from pathlib import Path
 from webapp import jobs, pipeline
 
 
-def test_file_backed_job_lifecycle(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs, "_JOBS_DIR", tmp_path / "jobs")
+def test_d1_backed_job_lifecycle(memory_d1):
     job = jobs.create("full", {"topic": {"id": "kb-001"}})
     assert jobs.get(job["id"])["status"] == "queued"
     jobs.update(job["id"], status="running", progress=42)
@@ -44,15 +43,9 @@ def test_preflight_blocks_blacklisted_title_and_missing_cover(tmp_path):
     assert {"cover", "blacklist"}.issubset(errors)
 
 
-def test_full_job_persists_completed_history(tmp_path, monkeypatch):
+def test_full_job_persists_completed_history(tmp_path, monkeypatch, memory_d1):
     from webapp import history
 
-    data_dir = tmp_path / "data"
-    monkeypatch.setattr(jobs, "_JOBS_DIR", data_dir / "jobs")
-    monkeypatch.setattr(history, "_DATA_DIR", data_dir)
-    monkeypatch.setattr(history, "_HISTORY_FILE", data_dir / "history.json")
-    history._entries.clear()
-    history._next_id = 1
     workdir = tmp_path / "work"
     (workdir / "images").mkdir(parents=True)
     (workdir / "article.md").write_text(
@@ -60,7 +53,13 @@ def test_full_job_persists_completed_history(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     topic = {"id": "kb-001", "title": "原主题", "category": "psychology"}
-    job = jobs.create("full", {"topic": topic, "theme": "terracotta", "client": ""})
+    entry_id = history.add({
+        "topic_id": "kb-001", "title": "原主题", "category": "psychology",
+        "theme": "terracotta", "client": "", "status": "generating",
+    })
+    job = jobs.create("full", {
+        "topic": topic, "theme": "terracotta", "client": "", "history_id": entry_id,
+    })
     monkeypatch.setattr(
         pipeline, "write_article_to_workdir",
         lambda topic, client=None: (workdir, ["images/cover.jpg"]),
@@ -81,5 +80,5 @@ def test_full_job_persists_completed_history(tmp_path, monkeypatch):
     finished = jobs.get(job["id"])
     assert finished["status"] == "completed"
     assert finished["progress"] == 100
-    assert finished["result"]["history_id"] == 1
-    assert history.get(1)["image_mode"] == "real"
+    assert finished["result"]["history_id"] == entry_id
+    assert history.get(entry_id)["image_mode"] == "real"

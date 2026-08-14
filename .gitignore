@@ -1,6 +1,7 @@
 # Config with env vars (no secrets in git)
 # config.yaml is committed — sensitive values use ${VAR:-default} syntax
 .env
+.d1_api_token
 style.yaml
 history.yaml
 playbook.md
@@ -17,6 +18,9 @@ output/
 
 # Web UI runtime state
 webapp/_data/
+
+# Wrangler local state and D1 emulation
+.wrangler/
 
 # Exemplar library (user-specific content)
 references/exemplars/*.md
@@ -40,6 +44,7 @@ build/
 # Internal dev docs
 docs/
 CLAUDE.md
+.superpowers/
 
 # IDE
 .vscode/

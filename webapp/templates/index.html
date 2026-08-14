@@ -103,6 +103,39 @@
   }
   input:focus, select:focus, textarea:focus { outline: 1px solid var(--primary); }
   .form-group { margin-bottom: 14px; }
+  .topic-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .topic-category-filter { grid-column: 1 / -1; }
+  .topic-center {
+    margin-top: 8px;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .topic-card {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .topic-card:last-child { border-bottom: 0; }
+  .topic-card:hover { background: var(--surface-3); }
+  .topic-card.selected { background: rgba(255, 77, 109, 0.13); box-shadow: inset 3px 0 var(--primary); }
+  .topic-card-title { font-size: 13px; color: var(--text-1); line-height: 1.4; }
+  .topic-card-meta { margin-top: 3px; font-size: 11px; color: var(--text-3); }
+  .topic-state { margin-left: 5px; color: var(--warning); }
+  .topic-center-empty { padding: 16px 10px; text-align: center; font-size: 12px; color: var(--text-3); }
+  .custom-topic-form {
+    display: none;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .custom-topic-form.show { display: block; }
+  .custom-topic-form input, .custom-topic-form textarea { margin-bottom: 8px; }
+  .custom-topic-form textarea { min-height: 70px; resize: vertical; }
   button {
     background: var(--surface-3);
     color: var(--text-1);
@@ -377,12 +410,44 @@
       <p class="pipeline-note">选题 → 2500–4000 字框架写作 → 封面 + 4 张内文图 → 预览。<br>生成在后台执行，可安全离开页面后再回看历史。</p>
 
       <div class="form-group">
-        <label for="topic_id">主题</label>
-        <select id="topic_id">
-          {% for t in topics %}
-          <option value="{{ t.id }}" data-category="{{ t.category }}">{{ t.id }} — {{ t.title }}（{{ t.category }}）</option>
-          {% endfor %}
-        </select>
+        <label for="topic-search">选题中心</label>
+        <input id="topic-search" type="search" placeholder="搜索标题或主题 ID">
+        <div class="topic-filters">
+          <select id="topic-status" aria-label="主题状态">
+            <option value="available">未创作</option>
+            <option value="drafted">已创作</option>
+            <option value="pushed">已推送</option>
+            <option value="published">已发布</option>
+            <option value="all">全部状态</option>
+          </select>
+          <select id="topic-source" aria-label="主题来源">
+            <option value="all">全部来源</option>
+            <option value="corpus">知识库</option>
+            <option value="custom">自定义</option>
+            <option value="hotspot">热点</option>
+            <option value="import">导入</option>
+          </select>
+          <select id="topic-category" class="topic-category-filter" aria-label="主题分类">
+            <option value="all">全部分类</option>
+          </select>
+        </div>
+        <input id="topic_id" type="hidden">
+        <div class="topic-center" id="topic-center">
+          <div class="topic-center-empty">正在加载选题…</div>
+        </div>
+        <div class="actions-row">
+          <button class="full" id="btn-new-topic" type="button">＋ 自定义主题</button>
+        </div>
+        <div class="custom-topic-form" id="custom-topic-form">
+          <input id="custom-topic-title" placeholder="主题标题（必填）" maxlength="120">
+          <input id="custom-topic-category" placeholder="分类，例如：行业观察" maxlength="60">
+          <textarea id="custom-topic-points" placeholder="关键要点，每行一条"></textarea>
+          <input id="custom-topic-origin" placeholder="背景或素材来源（可选）" maxlength="300">
+          <div class="actions-row">
+            <button id="btn-save-topic" class="primary" type="button">保存并选择</button>
+            <button id="btn-cancel-topic" type="button">取消</button>
+          </div>
+        </div>
       </div>
 
       <div class="form-group">
@@ -390,7 +455,7 @@
         <select id="client">
           <option value="">通用知识库</option>
           {% for client in clients %}
-          <option value="{{ client }}">{{ client }}（Style + Playbook）</option>
+          <option value="{{ client }}">{{ client }}</option>
           {% endfor %}
         </select>
       </div>
@@ -466,6 +531,11 @@
   (function () {
     const $ = (id) => document.getElementById(id);
     const topicSelect = $('topic_id');
+    const topicSearch = $('topic-search');
+    const topicStatus = $('topic-status');
+    const topicSource = $('topic-source');
+    const topicCategory = $('topic-category');
+    const topicCenter = $('topic-center');
     const clientSelect = $('client');
     const themeInput = $('theme');
     const btnPreview = $('btn-preview');
@@ -482,6 +552,108 @@
 
     // currentPreview: {history_id, topic, theme, html_url, image_mode}
     let currentPreview = null;
+    let selectedTopic = null;
+    let topicSearchTimer = null;
+
+    const escapeHtml = (value) => String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
+    const topicStateNames = {
+      available: '未创作', drafted: '已创作', pushed: '已推送',
+      published: '已发布', archived: '已归档', generating: '生成中',
+      draft: '草稿', review: '待检查', ready: '可发布', failed: '失败'
+    };
+
+    function renderTopics(items) {
+      topicCenter.innerHTML = '';
+      if (!items.length) {
+        topicCenter.innerHTML = '<div class="topic-center-empty">没有符合条件的主题，可以新建自定义主题</div>';
+        topicSelect.value = '';
+        selectedTopic = null;
+        return;
+      }
+      for (const topic of items) {
+        const card = document.createElement('div');
+        card.className = 'topic-card';
+        card.dataset.id = topic.id;
+        if (topicSelect.value === topic.id) card.classList.add('selected');
+        card.innerHTML =
+          '<div class="topic-card-title">' + escapeHtml(topic.title) + '</div>' +
+          '<div class="topic-card-meta">' + escapeHtml(topic.id) + ' · ' +
+          escapeHtml(topic.category || '未分类') + ' · ' + escapeHtml(topic.source) +
+          '<span class="topic-state">' + escapeHtml(topicStateNames[topic.status] || topic.status) + '</span></div>';
+        card.addEventListener('click', () => {
+          selectedTopic = topic;
+          topicSelect.value = topic.id;
+          for (const item of topicCenter.querySelectorAll('.topic-card')) item.classList.remove('selected');
+          card.classList.add('selected');
+          metaEl.textContent = topic.id + ' · ' + topic.title + ' · ' + (topic.category || '未分类');
+        });
+        topicCenter.appendChild(card);
+      }
+      if (!topicSelect.value || !items.some(item => item.id === topicSelect.value)) {
+        topicCenter.querySelector('.topic-card').click();
+      }
+    }
+
+    function updateCategoryOptions(items) {
+      const current = topicCategory.value;
+      const categories = [...new Set(items.map(item => item.category).filter(Boolean))].sort();
+      topicCategory.innerHTML = '<option value="all">全部分类</option>' +
+        categories.map(value => '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + '</option>').join('');
+      if (categories.includes(current)) topicCategory.value = current;
+    }
+
+    async function loadTopics() {
+      topicCenter.innerHTML = '<div class="topic-center-empty">正在加载选题…</div>';
+      const params = new URLSearchParams({
+        q: topicSearch.value.trim(),
+        status: topicStatus.value,
+        source: topicSource.value,
+        category: topicCategory.value,
+      });
+      try {
+        const resp = await fetch('/api/topics?' + params.toString());
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || '选题加载失败');
+        updateCategoryOptions(data.topics);
+        renderTopics(data.topics);
+      } catch (e) {
+        topicCenter.innerHTML = '<div class="topic-center-empty">' + escapeHtml(e.message || e) + '</div>';
+      }
+    }
+
+    async function saveCustomTopic() {
+      const title = $('custom-topic-title').value.trim();
+      if (!title) return showStatus('error', '请输入自定义主题标题');
+      $('btn-save-topic').disabled = true;
+      try {
+        const resp = await fetch('/api/topics', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title,
+            category: $('custom-topic-category').value.trim() || 'custom',
+            origin: $('custom-topic-origin').value.trim(),
+            key_points: $('custom-topic-points').value.split('\n').map(x => x.trim()).filter(Boolean),
+            client: clientSelect.value,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || '保存主题失败');
+        topicStatus.value = 'available';
+        topicSource.value = 'custom';
+        topicCategory.value = 'all';
+        topicSearch.value = title;
+        await loadTopics();
+        $('custom-topic-form').classList.remove('show');
+        showStatus('success', '自定义主题已保存并选中。');
+      } catch (e) {
+        showStatus('error', e.message || e);
+      } finally {
+        $('btn-save-topic').disabled = false;
+      }
+    }
 
     function showStatus(kind, msg) {
       // success / error / warning → modal that the user must dismiss.
@@ -555,9 +727,9 @@
 
     function setMeta(p) {
       metaEl.innerHTML =
-        '<strong>' + p.topic.id + '</strong> · ' +
-        p.topic.title + ' · <strong>' + p.topic.category +
-        '</strong> · theme=' + p.theme;
+        '<strong>' + escapeHtml(p.topic.id) + '</strong> · ' +
+        escapeHtml(p.topic.title) + ' · <strong>' + escapeHtml(p.topic.category) +
+        '</strong> · theme=' + escapeHtml(p.theme);
     }
 
     function imageModeBadge(mode) {
@@ -610,10 +782,11 @@
             imageModeBadge(e.image_mode) +
             '<button class="delete-btn" data-id="' + e.id + '" title="删除历史 #' + e.id + '">×</button>' +
           '</div>' +
-          '<div class="title">' + (e.title || e.topic_id) + '</div>' +
+          '<div class="title">' + escapeHtml(e.title || e.topic_id) + '</div>' +
           '<div class="meta">' +
-            (e.topic_id || '') + ' · ' + (e.theme || '') + ' · ' +
-            (e.created_at || '') +
+            escapeHtml(e.topic_id || '') + ' · ' + escapeHtml(e.theme || '') + ' · ' +
+            escapeHtml(topicStateNames[e.status] || e.status || '草稿') + ' · ' +
+            escapeHtml(e.updated_at || e.created_at || '') +
           '</div>';
         div.querySelector('.delete-btn').addEventListener('click', (ev) => {
           ev.stopPropagation();
@@ -713,6 +886,7 @@
           const kind = job.result.image_mode === 'real' ? 'success' : 'warning';
           showStatus(kind, '预览已生成 · ' + imageModeText(job.result.image_mode));
           await refreshHistory();
+          await loadTopics();
           btnPreview.disabled = false;
           return;
         }
@@ -858,6 +1032,8 @@
         const data = await resp.json();
         if (data.ok) {
           showStatus('success', '✅ 推送成功\n' + (data.stdout || '').trim());
+          await refreshHistory();
+          await loadTopics();
         } else {
           let msg = '❌ 推送失败（returncode=' + data.returncode + '）';
           if (data.stderr && data.stderr.trim()) {
@@ -886,6 +1062,17 @@
     $('btn-regen-images').addEventListener('click', () => regenerate('images'));
     $('btn-regen-image').addEventListener('click', () => regenerate('image', $('image-role').value));
     $('btn-apply-theme').addEventListener('click', applyTheme);
+    $('btn-new-topic').addEventListener('click', () => $('custom-topic-form').classList.toggle('show'));
+    $('btn-cancel-topic').addEventListener('click', () => $('custom-topic-form').classList.remove('show'));
+    $('btn-save-topic').addEventListener('click', saveCustomTopic);
+    topicSearch.addEventListener('input', () => {
+      clearTimeout(topicSearchTimer);
+      topicSearchTimer = setTimeout(loadTopics, 250);
+    });
+    topicStatus.addEventListener('change', loadTopics);
+    topicSource.addEventListener('change', loadTopics);
+    topicCategory.addEventListener('change', loadTopics);
+    loadTopics();
     refreshHistory();
     const activeJob = localStorage.getItem('wechat-studio-active-job');
     if (activeJob) pollJob(activeJob).catch(e => {

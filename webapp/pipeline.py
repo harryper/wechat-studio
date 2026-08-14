@@ -12,7 +12,7 @@ import yaml
 from scripts.check_blacklist import check as check_blacklist
 from scripts.humanness_score import score_article
 
-from . import history, jobs
+from . import history, jobs, topics
 from .render import (
     _write_preview_html,
     ensure_default_image_references,
@@ -71,6 +71,7 @@ def entry_result(entry: Dict[str, Any]) -> Dict[str, Any]:
             "category": entry.get("category"),
         },
         "theme": entry.get("theme"),
+        "status": entry.get("status", "draft"),
         "assessment": entry.get("assessment", {}),
     }
 
@@ -88,6 +89,7 @@ def run_job(job_id: str) -> None:
             topic = payload["topic"]
             theme = payload["theme"]
             client = payload.get("client") or None
+            entry_id = int(payload["history_id"])
             jobs.update(job_id, phase="writing", progress=10)
             workdir, image_rels = write_article_to_workdir(topic, client=client)
             jobs.update(job_id, phase="images", progress=45)
@@ -96,17 +98,28 @@ def run_job(job_id: str) -> None:
             _write_preview_html(workdir, theme)
             jobs.update(job_id, phase="quality", progress=92)
             assessment = assess_workdir(workdir, client)
-            entry_id = history.add({
-                "topic_id": topic.get("id"),
+            markdown = (workdir / "article.md").read_text(encoding="utf-8")
+            entry = history.update(entry_id, {
                 "title": assessment["title"] or topic.get("title", ""),
-                "category": topic.get("category", ""),
                 "theme": theme,
                 "workdir": str(workdir),
                 "image_mode": image_mode,
-                "client": client or "",
                 "assessment": assessment,
+                "markdown": markdown,
+                "status": "draft",
             })
-            entry = history.get(entry_id)
+            if entry is None:
+                raise RuntimeError(f"history #{entry_id} 不存在")
+            readiness = preflight(entry)
+            entry = history.update(
+                entry_id,
+                {"status": "ready" if readiness["publishable"] else "review"},
+            )
+            topics.set_status(
+                topic["id"],
+                "drafted",
+                {"history_id": entry_id, "job_id": job_id},
+            )
         else:
             entry_id = int(payload["history_id"])
             entry = history.get(entry_id)
@@ -133,7 +146,16 @@ def run_job(job_id: str) -> None:
                 raise RuntimeError(f"不支持的任务类型：{kind}")
             jobs.update(job_id, phase="render", progress=85)
             _write_preview_html(workdir, entry["theme"])
+            changes["markdown"] = (workdir / "article.md").read_text(encoding="utf-8")
+            changes["status"] = "draft"
             entry = history.update(entry_id, changes)
+            if entry is None:
+                raise RuntimeError(f"history #{entry_id} 不存在")
+            readiness = preflight(entry)
+            entry = history.update(
+                entry_id,
+                {"status": "ready" if readiness["publishable"] else "review"},
+            )
 
         if entry is None:
             raise RuntimeError("保存历史记录失败")
@@ -145,6 +167,12 @@ def run_job(job_id: str) -> None:
             result=entry_result(entry),
         )
     except Exception as exc:
+        failed_history_id = (job.get("payload") or {}).get("history_id") if job else None
+        if failed_history_id:
+            try:
+                history.update(int(failed_history_id), {"status": "failed"})
+            except Exception:
+                pass
         jobs.update(
             job_id,
             status="failed",

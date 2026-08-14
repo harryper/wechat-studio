@@ -2,14 +2,15 @@
 
 公众号 AI 内容工作台：从知识库选题、长文写作和配图，到主题预览、在线修改和微信草稿箱发布。
 
-当前版本：`1.4.1`
+当前版本：`1.5.0`
 
 ## 功能概览
 
 - 从 `references/knowledge-corpus.yaml` 选择选题，并按关键词匹配写作框架。
 - 通过 Anthropic Messages 兼容接口生成 2500–4000 字 Markdown 长文。
 - 异步生成 1 张封面和 4 张内文图；单张失败时生成本地占位图，不中断整篇任务。
-- 提供 38 套主题、桌面/移动预览、Markdown 在线修改和历史记录。
+- 提供 38 套主题、桌面/移动预览、Markdown 在线修改和 D1 内容历史。
+- 选题中心支持搜索、状态/来源/分类筛选和自定义主题。
 - 支持重写文章、重生全部图片、重生单张图片及单独换主题。
 - 发布前检查标题、图片、封面、客户 Blacklist、占位图和 AI 痕迹分。
 - 经用户确认后创建微信公众号草稿，不会自动群发。
@@ -36,23 +37,25 @@ pip install -r requirements.txt
 推荐在项目根目录创建不入库的 `.env`：
 
 ```dotenv
-# Web 生成文章必需：Anthropic Messages 兼容接口
-ANTHROPIC_BASE_URL=https://your-endpoint.example
-ANTHROPIC_AUTH_TOKEN=your-token
+# Web 生成文章默认使用 MiniMax 的 Anthropic Messages 兼容接口
+MINIMAX_API_KEY=your-minimax-key
+ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
+ANTHROPIC_AUTH_TOKEN=your-minimax-key
 ANTHROPIC_MODEL=MiniMax-M3
 
 # 创建微信草稿时必需
 WECHAT_APPID=wx_your_appid
 WECHAT_SECRET=your_appsecret
 
-# 生图供应商至少配置一个；均未配置时使用本地占位图
-MINIMAX_API_KEY=your-minimax-key
+# 可选的图片生成回退；均未配置时使用本地占位图
 OPENAI_API_KEY=sk-...
-DOUBAO_API_KEY=your-volc-key
 
 # Web 登录，正式部署务必修改
 APP_PASSWORD=a-strong-password
 APP_COOKIE_SECRET=a-long-random-secret
+
+# D1 数据 Worker；Compose 已提供当前部署地址
+D1_API_URL=https://wechat-studio-data.harryperlau.workers.dev
 ```
 
 `config.yaml` 支持 `${VAR}` 和 `${VAR:-default}`，不要在仓库文件中写入真实密钥。未设置 `APP_PASSWORD` 时，开发环境默认密码为 `asdf123456`；这只适合本机测试。
@@ -70,7 +73,16 @@ curl -fsS http://127.0.0.1:9997/api/health
 XIAOHU_FORMAT_DIR=/absolute/path/to/xiaohu-wechat-format
 ```
 
-生成请求会立即返回任务 ID，页面通过轮询显示写作、配图、排版和质量检查进度。任务状态保存在 `webapp/_data/jobs/`，所以刷新页面后可以继续查看；后台线程不会跨进程恢复，容器或服务重启时未完成的任务需要重新提交。
+生成请求会立即返回任务 ID，页面通过轮询显示写作、配图、排版和质量检查进度。任务状态、文章正文和内容状态统一保存在 Cloudflare D1，所以刷新页面后可以继续查看；后台生成线程仍在本机执行，容器或服务重启后任务记录仍会保留，但未完成任务需要重新提交。
+
+Compose 从 Git 忽略的 `.d1_api_token` 读取 Worker 服务令牌，并以 Docker secret 挂载。首次部署数据 Worker和迁移旧数据：
+
+```bash
+npx wrangler deploy
+python3 scripts/migrate_web_state_to_d1.py \
+  --api-url https://wechat-studio-data.harryperlau.workers.dev \
+  --token-file .d1_api_token
+```
 
 ## OpenClaw 与 Web 的流程
 
@@ -133,7 +145,7 @@ docker compose up -d --build
 curl -fsS http://127.0.0.1:9997/api/health
 ```
 
-运行状态保存在 bind mount 的 `webapp/_data/`，重新构建镜像不会删除历史记录。系统默认最多保留 100 个任务状态和 10 条文章历史，可分别通过 `WS_JOB_MAX`、`WS_HISTORY_MAX` 调整。
+选题、正文、历史、任务和发布状态保存在 D1，重新构建镜像不会删除。`webapp/_data/workdirs/` 只保存排版 HTML 和图片等本地运行产物。
 
 ## 验证
 
@@ -151,7 +163,7 @@ docker compose config -q
 - **xiaohu 主题不可用**：确认兄弟项目存在，或通过 `XIAOHU_FORMAT_DIR` 指向其绝对路径。
 - **客户列表为空**：先创建 `clients/<客户名>/style.yaml`，然后确认 Compose 已挂载 `./clients:/app/clients:ro`。
 - **微信发布失败**：运行 `python3 scripts/diagnose.py --json`，检查 AppID、Secret、IP 白名单和封面文件。
-- **任务长时间停在运行中**：若服务期间发生过重启，请重新提交任务；旧任务 JSON 可继续用于排查。
+- **任务长时间停在运行中**：若服务期间发生过重启，请从内容库重新提交；任务错误和阶段可在 D1 中查询。
 
 ## 目录
 

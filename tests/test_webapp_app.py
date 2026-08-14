@@ -19,20 +19,12 @@ class FakeExecutor:
 
 
 @pytest.fixture
-def web_client(tmp_path, monkeypatch):
-    data_dir = tmp_path / "data"
-    monkeypatch.setattr(history, "_DATA_DIR", data_dir)
-    monkeypatch.setattr(history, "_HISTORY_FILE", data_dir / "history.json")
-    monkeypatch.setattr(jobs, "_JOBS_DIR", data_dir / "jobs")
-    history._entries.clear()
-    history._next_id = 1
+def web_client(tmp_path, monkeypatch, memory_d1):
     executor = FakeExecutor()
     monkeypatch.setattr(app_module, "JOB_EXECUTOR", executor)
     client = app_module.app.test_client()
     client.set_cookie(app_module.COOKIE_NAME, app_module.COOKIE_VALUE)
     yield client, executor
-    history._entries.clear()
-    history._next_id = 1
 
 
 def test_create_generation_job_returns_202(web_client):
@@ -43,8 +35,26 @@ def test_create_generation_job_returns_202(web_client):
     assert response.status_code == 202
     payload = response.get_json()
     assert payload["status"] == "queued"
+    assert history.get(payload["history_id"])["status"] == "generating"
     assert jobs.get(payload["job_id"])["kind"] == "full"
     assert len(executor.calls) == 1
+
+
+def test_topic_center_lists_and_creates_custom_topic(web_client):
+    client, _ = web_client
+    listed = client.get("/api/topics?status=available&q=幸存者")
+    assert listed.status_code == 200
+    assert listed.get_json()["topics"][0]["id"] == "kb-001"
+
+    created = client.post("/api/topics", json={
+        "title": "自定义产品主题",
+        "category": "product",
+        "key_points": ["第一条", "第二条"],
+    })
+    assert created.status_code == 201
+    payload = created.get_json()["topic"]
+    assert payload["source"] == "custom"
+    assert payload["status"] == "available"
 
 
 def test_article_edit_saves_and_rerenders(web_client, tmp_path, monkeypatch):

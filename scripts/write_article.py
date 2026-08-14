@@ -31,6 +31,7 @@ import anthropic
 # ── 路径常量 ─────────────────────────────────────────────────────────
 SKILL_DIR = Path(__file__).resolve().parent.parent
 FRAMEWORKS_DOC = SKILL_DIR / "references" / "frameworks-academic.md"
+MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimaxi.com/anthropic"
 
 
 # ── 框架选择 ─────────────────────────────────────────────────────────
@@ -101,19 +102,33 @@ def _build_outline(topic: Dict[str, Any]) -> str:
 
 
 # ── LLM 客户端 ───────────────────────────────────────────────────────
+def _load_env_files() -> None:
+    """Load the project .env for direct Web/CLI runs outside Docker Compose."""
+    for env_path in (SKILL_DIR / ".env", Path.cwd() / ".env"):
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and not os.environ.get(key):
+                os.environ[key] = value
+
+
 def _build_client() -> anthropic.Anthropic:
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    if not base_url:
-        raise RuntimeError(
-            "ANTHROPIC_BASE_URL 未设置 — 无法调用 LLM。请在 .env 或环境变量中配置。"
-        )
+    _load_env_files()
+    base_url = os.environ.get("ANTHROPIC_BASE_URL") or MINIMAX_ANTHROPIC_BASE_URL
     api_key = (
         os.environ.get("ANTHROPIC_AUTH_TOKEN")
         or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("MINIMAX_API_KEY")
     )
     if not api_key:
         raise RuntimeError(
-            "ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY 未设置 — 无法调用 LLM。"
+            "MINIMAX_API_KEY 未设置 — 无法调用 LLM。请在 .env 或环境变量中配置。"
         )
     return anthropic.Anthropic(base_url=base_url, auth_token=api_key)
 

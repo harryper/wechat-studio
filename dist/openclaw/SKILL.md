@@ -68,7 +68,7 @@ python3 {baseDir}/toolkit/cli.py preview {markdown_path} \
 ```
 
 - xiaohu 主题走兄弟项目 `xiaohu-wechat-format`，其余主题走项目原生转换器。
-- Web 工作台将产物存入 `webapp/_data/workdirs/`，并在 `webapp/_data/history.json` 保存预览元数据。
+- Web 工作台将 HTML/图片运行产物存入 `webapp/_data/workdirs/`；选题、正文、历史、任务、发布记录和状态事件统一保存到 Cloudflare D1。
 - 生成预览后先让用户检查标题、正文、配图和主题。
 
 ### 6. 发布草稿
