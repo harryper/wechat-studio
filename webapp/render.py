@@ -53,7 +53,7 @@ for p in (str(SKILL_DIR), str(TOOLKIT_DIR)):
         sys.path.insert(0, p)
 
 from scripts.write_article import write_article  # type: ignore  # noqa: E402
-from image_gen import generate_image  # type: ignore  # noqa: E402
+from image_gen import detect_text, generate_image  # type: ignore  # noqa: E402
 
 log = logging.getLogger("wechat-studio.render")
 
@@ -293,6 +293,30 @@ def write_article_to_workdir(
 
 
 # ── 步骤 2：生成图片（AI 链 + PIL 占位图 fallback）──────────────────────
+# 候选图片先过一遍本地 Tesseract 文字检测，被判定为伪文字就用强化提示词
+# 重试同一个 provider，两次都不合格才降级到链上的下一家。
+_ATTEMPTS_PER_PROVIDER = 2
+
+
+def _write_image_diagnostics(workdir: Path, diagnostics: Dict[str, Any]) -> None:
+    """Persist provider/validation diagnostics next to image-status.json.
+
+    Written atomically so a crashed worker can't leave a half-file behind.
+    Contains no keys, prompts, OCR text or provider payloads.
+    """
+    path = workdir / "image-diagnostics.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_image_diagnostics(workdir: Path) -> Dict[str, Any]:
+    try:
+        return json.loads((workdir / "image-diagnostics.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def generate_images_in_workdir(
     workdir: Path,
     topic: Dict[str, Any],
@@ -314,22 +338,33 @@ def generate_images_in_workdir(
 
     ai_failed: List[str] = []
     image_states: Dict[str, str] = {}
+    diagnostics: Dict[str, Any] = {}
     for rel, role, prompt in zip(image_rels, roles, prompts):
         target = img_dir / Path(rel).name
+        entry: Dict[str, Any] = {}
         try:
-            generate_image(prompt, str(target), size="cover" if role == "cover" else "article")
+            generate_image(
+                prompt,
+                str(target),
+                size="cover" if role == "cover" else "article",
+                validator=detect_text,
+                attempts_per_provider=_ATTEMPTS_PER_PROVIDER,
+                diagnostics=entry,
+            )
             image_states[role] = "real"
-            continue
         except Exception as e:
             ai_failed.append(f"{role}: {type(e).__name__}: {e}")
             log.warning("AI image gen failed for %s: %s", role, e)
             # Drop a placeholder so the file always exists for cli.py preview / publish.
             target.write_bytes(_placeholder_image(topic, role))
             image_states[role] = "placeholder"
+            entry.setdefault("validation", "failed")
+        diagnostics[role] = entry
 
     (workdir / "image-status.json").write_text(
         json.dumps(image_states, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    _write_image_diagnostics(workdir, diagnostics)
     if ai_failed:
         log.warning("some AI images failed; using PIL placeholders. errors=%s",
                     "; ".join(ai_failed)[:400])
@@ -349,14 +384,26 @@ def generate_single_image_in_workdir(workdir: Path, topic: Dict[str, Any], role:
         states = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         states = {}
+    entry: Dict[str, Any] = {}
     try:
-        generate_image(prompts[role], str(target), size="cover" if role == "cover" else "article")
+        generate_image(
+            prompts[role],
+            str(target),
+            size="cover" if role == "cover" else "article",
+            validator=detect_text,
+            attempts_per_provider=_ATTEMPTS_PER_PROVIDER,
+            diagnostics=entry,
+        )
         states[role] = "real"
     except Exception as e:
         log.warning("AI image regeneration failed for %s: %s", role, e)
         target.write_bytes(_placeholder_image(topic, role))
         states[role] = "placeholder"
+        entry.setdefault("validation", "failed")
     state_path.write_text(json.dumps(states, ensure_ascii=False, indent=2), encoding="utf-8")
+    diagnostics = _read_image_diagnostics(workdir)
+    diagnostics[role] = entry
+    _write_image_diagnostics(workdir, diagnostics)
     values = [states.get(item, "placeholder") for item in roles]
     if all(value == "real" for value in values):
         return "real"

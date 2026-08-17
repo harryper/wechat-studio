@@ -35,12 +35,16 @@ image:
 
 # 方式二：多 provider 自动 fallback（推荐）
 # 按顺序尝试，第一个失败自动切换下一个，不需要全部填写
+# 每个条目可加 enabled 开关；值为 false / 0 / no / off 时跳过该 provider。
+# 仓库默认把 openai 设成 enabled: "${OPENAI_IMAGE_ENABLED:-false}"，
+# 不显式 export OPENAI_IMAGE_ENABLED=true 就不会产生 OpenAI 费用。
 # image:
 #   providers:
 #     - provider: minimax
 #       api_key: "${MINIMAX_API_KEY}"
 #       model: "image-01"
 #     - provider: openai
+#       enabled: "${OPENAI_IMAGE_ENABLED:-false}"
 #       api_key: "${OPENAI_API_KEY}"
 #       model: "gpt-image-2"
 #     - provider: dashscope

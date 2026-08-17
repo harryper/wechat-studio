@@ -60,6 +60,12 @@ python3 {skill_dir}/scripts/write_article.py --topic {topic_id} --out {markdown_
 
 使用 `toolkit/image_gen.py` 中的供应商链。单张生成失败时，Web 工作台用 PIL 占位图保持预览可用；Agent 直接流程则保留成功图片并说明失败项。不得把占位图当作真实 AI 图片汇报。
 
+提示词必须是纯视觉描述：不要用书名号引用标题，也不要出现信息图 / 流程图 / 时间线 / 学术海报 / 数据图表这类天然诱导文字的构图词。每条提示词末尾统一追加中英双语硬约束：`no text, no letters, no words, no numbers`，并明确禁止标签、图例、水印、logo、标牌、书页、屏幕界面、图表和海报排版。
+
+候选图片会先经本地 Tesseract（`image_gen.detect_text`）检测伪文字：被判定为含文字时用强化提示词重试同一供应商，两次都不合格才降级到链上的下一家。缺少 Tesseract 时记为 `not_available` 并跳过检测。诊断结果写入 workdir 的 `image-diagnostics.json`，只含供应商、尝试次数、检测状态和安全的拒绝原因。
+
+供应商条目支持 `enabled` 开关；仓库默认 `enabled: "${OPENAI_IMAGE_ENABLED:-false}"` 关闭 OpenAI 图片供应商，不显式 `export OPENAI_IMAGE_ENABLED=true` 就不会产生 OpenAI 费用。
+
 ### 5. 预览
 
 ```bash

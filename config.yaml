@@ -22,6 +22,8 @@ image:
       model: "image-01"
       base_url: "https://api.minimaxi.com/v1"
     - provider: "openai"
+      # 默认关闭，避免产生 OpenAI 费用；需要时显式 export OPENAI_IMAGE_ENABLED=true
+      enabled: "${OPENAI_IMAGE_ENABLED:-false}"
       api_key: "${OPENAI_API_KEY}"
       model: "gpt-image-2"
       base_url: "https://api.openai.com/v1"

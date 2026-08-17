@@ -8,6 +8,7 @@ The defense: after cli.py preview writes article.html, scan it for the
 CJK+CJK space pattern. If found, re-render via xiaohu directly so the
 output is clean regardless of which path cli.py used.
 """
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -128,7 +129,7 @@ def test_generate_images_reports_mixed_mode(tmp_path, monkeypatch):
     (workdir / "images").mkdir(parents=True)
     calls = []
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, size, **kwargs):
         calls.append(Path(output).name)
         if output.endswith("inline-2.jpg"):
             raise RuntimeError("quota")
@@ -142,6 +143,84 @@ def test_generate_images_reports_mixed_mode(tmp_path, monkeypatch):
     states = __import__("json").loads((workdir / "image-status.json").read_text())
     assert states["inline-2"] == "placeholder"
     assert all((workdir / rel).is_file() for rel in render.default_image_rels())
+
+
+def test_generate_images_passes_local_validation_and_two_attempts(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    (workdir / "images").mkdir(parents=True)
+    seen = []
+
+    def fake_generate(prompt, output, size, **kwargs):
+        seen.append(kwargs)
+        Path(output).write_bytes(b"real")
+
+    monkeypatch.setattr(render, "generate_image", fake_generate)
+    render.generate_images_in_workdir(workdir, TOPIC, render.default_image_rels())
+
+    assert len(seen) == 5
+    for kwargs in seen:
+        assert kwargs["validator"] is render.detect_text
+        assert kwargs["attempts_per_provider"] == 2
+
+
+def test_generate_images_writes_safe_diagnostics_for_all_roles(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    (workdir / "images").mkdir(parents=True)
+
+    def fake_generate(prompt, output, size, **kwargs):
+        if output.endswith("inline-2.jpg"):
+            raise RuntimeError("quota")
+        kwargs["diagnostics"].update({
+            "provider": "minimax",
+            "attempts": 2,
+            "validation": "pass",
+            "rejections": ["minimax attempt 1: detected 30 confident characters"],
+        })
+        Path(output).write_bytes(b"real")
+
+    monkeypatch.setattr(render, "generate_image", fake_generate)
+    render.generate_images_in_workdir(workdir, TOPIC, render.default_image_rels())
+
+    diagnostics = json.loads((workdir / "image-diagnostics.json").read_text(encoding="utf-8"))
+    assert set(diagnostics) == {"cover", "inline-1", "inline-2", "inline-3", "inline-4"}
+    assert diagnostics["cover"]["provider"] == "minimax"
+    assert diagnostics["cover"]["attempts"] == 2
+    assert diagnostics["cover"]["validation"] == "pass"
+    assert diagnostics["inline-2"]["validation"] == "failed"
+    for entry in diagnostics.values():
+        assert set(entry) <= {"provider", "attempts", "validation", "rejections"}
+    blob = (workdir / "image-diagnostics.json").read_text(encoding="utf-8")
+    for point in TOPIC["key_points"]:
+        assert point not in blob
+    assert "api_key" not in blob.lower()
+
+
+def test_generate_single_image_passes_validation_and_records_diagnostics(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    (workdir / "images").mkdir(parents=True)
+    (workdir / "image-status.json").write_text(
+        json.dumps({role: "real" for role in
+                    ["cover", "inline-1", "inline-2", "inline-3", "inline-4"]}),
+        encoding="utf-8",
+    )
+    seen = []
+
+    def fake_generate(prompt, output, size, **kwargs):
+        seen.append(kwargs)
+        kwargs["diagnostics"].update({
+            "provider": "minimax", "attempts": 1,
+            "validation": "not_available", "rejections": [],
+        })
+        Path(output).write_bytes(b"real")
+
+    monkeypatch.setattr(render, "generate_image", fake_generate)
+    mode = render.generate_single_image_in_workdir(workdir, TOPIC, "inline-3")
+
+    assert mode == "real"
+    assert seen[0]["validator"] is render.detect_text
+    assert seen[0]["attempts_per_provider"] == 2
+    diagnostics = json.loads((workdir / "image-diagnostics.json").read_text(encoding="utf-8"))
+    assert diagnostics["inline-3"]["validation"] == "not_available"
 
 
 TOPIC = {

@@ -31,6 +31,7 @@ import hmac
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -610,6 +611,66 @@ class JimengProvider(ImageProvider):
         raise ValueError("Jimeng polling timeout")
 
 
+# --- Local text detection (no cloud OCR, no API cost) ---
+
+# Pseudo-text from image models shows up as latin/digit glyph clusters. A
+# handful of confident characters is normal OCR noise on textures; a dozen
+# means the model actually drew words.
+_OCR_MIN_CONFIDENCE = 60
+_OCR_REJECT_CHARS = 12
+_OCR_TIMEOUT = 30
+_ALNUM_RE = re.compile(r"[A-Za-z0-9]")
+
+
+def detect_text(raw_bytes: bytes) -> tuple[str, str]:
+    """Detect rendered text in a candidate image using the local Tesseract CLI.
+
+    Returns ``(status, detail)`` where status is ``"pass"``, ``"rejected"`` or
+    ``"not_available"``. The detail never contains recognised text — only
+    counts — so diagnostics files stay free of image content.
+    """
+    try:
+        proc = subprocess.run(
+            ["tesseract", "stdin", "stdout", "--psm", "11", "tsv"],
+            input=raw_bytes,
+            capture_output=True,
+            timeout=_OCR_TIMEOUT,
+        )
+    except FileNotFoundError:
+        return "not_available", "tesseract CLI not installed; text check skipped"
+    except subprocess.TimeoutExpired:
+        return "not_available", "tesseract timed out; text check skipped"
+
+    stdout = proc.stdout
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", "replace")
+    if proc.returncode != 0:
+        return "not_available", f"tesseract exited {proc.returncode}; text check skipped"
+
+    char_count = 0
+    token_count = 0
+    for line in stdout.splitlines()[1:]:
+        columns = line.split("\t")
+        if len(columns) < 12:
+            continue
+        try:
+            confidence = float(columns[10])
+        except ValueError:
+            continue
+        if confidence < _OCR_MIN_CONFIDENCE:
+            continue
+        matched = len(_ALNUM_RE.findall(columns[11]))
+        if matched:
+            token_count += 1
+            char_count += matched
+
+    if char_count >= _OCR_REJECT_CHARS:
+        return "rejected", (
+            f"detected {char_count} confident characters in {token_count} tokens"
+        )
+    return "pass", f"detected {char_count} confident characters (under threshold)"
+
+
 # --- Provider registry ---
 
 PROVIDERS = {
@@ -656,6 +717,25 @@ def _build_provider_from_entry(entry: dict) -> ImageProvider:
     return provider_cls(**kwargs)
 
 
+_FALSY_CONFIG_VALUES = {"false", "0", "no", "off", ""}
+
+
+def _config_enabled(value) -> bool:
+    """Interpret a provider ``enabled`` flag.
+
+    Config values arrive either as real YAML booleans or as the string left
+    behind by ``${OPENAI_IMAGE_ENABLED:-false}`` expansion, so both shapes
+    have to resolve to the same answer.
+    """
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSY_CONFIG_VALUES
+    return bool(value)
+
+
 def _build_provider_chain(config: dict) -> list[ImageProvider]:
     """Build an ordered list of providers to try.
 
@@ -669,6 +749,8 @@ def _build_provider_chain(config: dict) -> list[ImageProvider]:
     if providers_list and isinstance(providers_list, list):
         chain = []
         for entry in providers_list:
+            if not _config_enabled(entry.get("enabled")):
+                continue
             try:
                 chain.append(_build_provider_from_entry(entry))
             except ValueError:
@@ -697,11 +779,21 @@ def _build_provider(config: dict) -> ImageProvider:
 
 # --- Public API ---
 
+_RETRY_NO_TEXT_SUFFIX = (
+    " 上一版画面里出现了文字，这次绝对不要画任何字符。"
+    "ABSOLUTELY NO TEXT of any kind: no letters, no glyphs, no digits, "
+    "no signage, no captions, no watermark. Pure imagery only."
+)
+
+
 def generate_image(
     prompt: str,
     output_path: str,
     size: str = "cover",
     config: dict = None,
+    validator=None,
+    attempts_per_provider: int = 1,
+    diagnostics: dict = None,
 ) -> str:
     """
     Generate an image using configured providers with auto-fallback.
@@ -714,6 +806,13 @@ def generate_image(
         output_path: Where to save the image.
         size: Size preset ("cover", "article", "vertical", "square") or explicit "WxH".
         config: Optional config dict. If None, loads from config.yaml.
+        validator: Optional ``bytes -> (status, detail)`` candidate check.
+            A ``"rejected"`` status retries the same provider with a stronger
+            no-text prompt; ``"not_available"`` accepts the candidate.
+        attempts_per_provider: How many times to ask each provider before
+            moving down the chain.
+        diagnostics: Optional dict populated with provider/attempt/validation
+            info. Never receives API keys, prompts or recognised text.
 
     Returns:
         The output file path.
@@ -723,41 +822,80 @@ def generate_image(
 
     chain = _build_provider_chain(config)
     last_error = None
+    rejections: list[str] = []
+    total_attempts = 0
 
     for provider in chain:
         resolved_size = provider.resolve_size(size)
-        try:
-            raw_bytes = provider.generate(prompt, resolved_size)
-        except Exception as e:
-            last_error = e
-            print(
-                f"Provider '{provider.provider_key}' failed: {e}. "
-                f"Trying next...",
-                file=sys.stderr,
-            )
-            continue
+        for attempt in range(1, max(1, attempts_per_provider) + 1):
+            total_attempts += 1
+            attempt_prompt = prompt if attempt == 1 else prompt + _RETRY_NO_TEXT_SUFFIX
+            try:
+                raw_bytes = provider.generate(attempt_prompt, resolved_size)
+            except Exception as e:
+                last_error = e
+                print(
+                    f"Provider '{provider.provider_key}' failed: {e}. "
+                    f"Trying next...",
+                    file=sys.stderr,
+                )
+                break
 
-        if "x" in size and resolved_size != size:
-            from io import BytesIO
-            from PIL import Image
+            validation_status, validation_detail = "skipped", ""
+            if validator is not None:
+                validation_status, validation_detail = validator(raw_bytes)
+                if validation_status == "rejected":
+                    rejections.append(
+                        f"{provider.provider_key} attempt {attempt}: {validation_detail}"
+                    )
+                    print(
+                        f"Provider '{provider.provider_key}' candidate rejected "
+                        f"({validation_detail}). Retrying...",
+                        file=sys.stderr,
+                    )
+                    continue
 
-            target_w, target_h = (int(x) for x in size.split("x", 1))
-            img = Image.open(BytesIO(raw_bytes))
-            if img.size != (target_w, target_h):
-                img = img.resize((target_w, target_h), Image.LANCZOS)
-                buf = BytesIO()
-                img.save(buf, format="PNG")
-                raw_bytes = buf.getvalue()
+            if "x" in size and resolved_size != size:
+                from io import BytesIO
+                from PIL import Image
 
-        # Compress if over 5MB (WeChat upload limit)
-        if len(raw_bytes) > MAX_FILE_SIZE:
-            raw_bytes = _compress_image(raw_bytes, MAX_FILE_SIZE)
+                target_w, target_h = (int(x) for x in size.split("x", 1))
+                img = Image.open(BytesIO(raw_bytes))
+                if img.size != (target_w, target_h):
+                    img = img.resize((target_w, target_h), Image.LANCZOS)
+                    buf = BytesIO()
+                    img.save(buf, format="PNG")
+                    raw_bytes = buf.getvalue()
 
-        output = Path(output_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_bytes(raw_bytes)
-        return str(output)
+            # Compress if over 5MB (WeChat upload limit)
+            if len(raw_bytes) > MAX_FILE_SIZE:
+                raw_bytes = _compress_image(raw_bytes, MAX_FILE_SIZE)
 
+            output = Path(output_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(raw_bytes)
+            if diagnostics is not None:
+                diagnostics.update({
+                    "provider": provider.provider_key,
+                    "attempts": total_attempts,
+                    "validation": validation_status,
+                    "rejections": rejections,
+                })
+            return str(output)
+
+    if diagnostics is not None:
+        diagnostics.update({
+            "provider": None,
+            "attempts": total_attempts,
+            "validation": "rejected" if rejections else "failed",
+            "rejections": rejections,
+        })
+
+    if rejections:
+        raise ValueError(
+            f"Image quality validation rejected all {len(rejections)} "
+            f"candidate(s): {'; '.join(rejections)}"
+        )
     raise ValueError(
         f"All providers failed. Last error: {last_error}"
     )
