@@ -171,37 +171,43 @@ TOPIC = {
     "key_points": ["返航轰炸机的弹孔分布", "沉默的证据", "选择效应", "现代商业误用"],
 }
 
-TEXT_INDUCING_TERMS = [
-    "学术插画", "编辑插画", "概念图", "机制图", "线稿说明图",
-    "流程图", "信息图", "标题区域", "文字区域",
-]
-
-
 def _all_prompts(topic):
     return [render._cover_prompt(topic), *render._inline_prompts(topic)]
 
 
-def test_prompts_use_single_focus_cinematic_scenes():
+def test_prompts_restore_educational_editorial_style_without_visible_text():
     for prompt in _all_prompts(TOPIC):
-        assert "电影感场景" in prompt
-        assert "单一视觉焦点" in prompt
-        assert "具体动作" in prompt
-        for term in TEXT_INDUCING_TERMS:
-            assert term not in prompt
+        assert "知识型编辑插画" in prompt
+        assert "现代科普杂志视觉" in prompt
+        assert "所有图形元素不加文字标签" in prompt
+        assert "不得出现标题、段落、字母、汉字、数字、水印或logo" in prompt
+        assert "电影感场景" not in prompt
+        assert "单一视觉焦点" not in prompt
 
 
-def test_cover_uses_natural_negative_space_not_title_area():
+def test_cover_is_a_structured_conceptual_science_cover():
     prompt = render._cover_prompt(TOPIC)
-    assert "天空、墙面、雾气或暗部" in prompt
-    assert "标题区域" not in prompt and "文字区域" not in prompt
+    assert "结构化概念封面" in prompt
+    assert "核心视觉隐喻" in prompt
+    assert "概念关系清晰" in prompt
+    assert "自然留白" in prompt
 
 
-def test_inline_prompts_have_distinct_scene_contracts():
+def test_inline_prompts_have_distinct_science_explanation_roles():
     prompts = render._inline_prompts(TOPIC)
-    assert "人物正在完成一个具体动作" in prompts[0]
-    assert "两至三个真实物体" in prompts[1]
-    assert "人物与实体器材互动" in prompts[2]
-    assert "现实生活场景" in prompts[3]
+    assert "历史重建式科普插画" in prompts[0]
+    assert "无文字机制图解" in prompts[1]
+    assert "无文字箭头、分层或路径" in prompts[1]
+    assert "证据与实验型科普插画" in prompts[2]
+    assert "应用与边界对照式科普插画" in prompts[3]
+
+
+def test_prompts_keep_topic_semantics_as_visual_context():
+    cover = render._cover_prompt(TOPIC)
+    assert TOPIC["title"] in cover
+    assert TOPIC["category"] in cover
+    for point, prompt in zip(TOPIC["key_points"], render._inline_prompts(TOPIC)):
+        assert point in prompt
 
 
 def test_ensure_default_image_references_upgrades_legacy_article(tmp_path):

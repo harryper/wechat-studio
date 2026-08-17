@@ -66,18 +66,22 @@ WORKDIR_ROOT = Path(__file__).resolve().parent / "_data" / "workdirs"
 
 
 # ── 提示词构造 ────────────────────────────────────────────────────────
-# 图片服务会把提示词里被引号/书名号包裹的字符串当成"要画上去的文字"，
-# 所以运行时提示词不引用标题，只把主题描述成视觉语义，再统一追加中英
-# 双语硬约束。英文那半句是给以英文训练为主的模型看的，缺了它 MiniMax
-# 仍会渲染出伪拉丁字符。
-_SCENE_CONSTRAINT = (
-    "电影感场景，横版构图，单一视觉焦点，主体正在完成一个具体动作；"
+# 图片服务会把提示词里被引号/书名号包裹的字符串当成“要画上去的文字”，
+# 所以运行时不引用标题，主题词只作为语义背景。科普感主要来自可视化的
+# 关系结构，而不是文字标签：允许箭头、分层、路径和对照，但全部保持无字。
+_KNOWLEDGE_STYLE = (
+    "知识型编辑插画，现代科普杂志视觉，横版16:9，2.5D半写实插画；"
+    "统一使用低饱和海军蓝、赭石与暖象牙色，干净背景，清晰轮廓，信息层级明确。"
+)
+
+_NO_TEXT_CONSTRAINT = (
+    "用人物、物体、空间关系和颜色编码传递知识；"
+    "允许无文字箭头、分层、路径、对照面板或时间演变结构，所有图形元素不加文字标签。"
     "主题词仅用于理解含义，绝不能以字符形式画进图片。"
-    "画面不得出现标题、段落、字母、汉字、数字、水印、logo、箭头、路线、"
-    "流程节点、标签、图例、表格、图表、书页、文件、标牌、屏幕、设备界面或海报布局。"
-    "purely visual cinematic scene, one focal subject performing a concrete action, "
-    "no text, letters, words, numbers, captions, labels, signs, screens, documents, "
-    "charts, arrows, diagrams, UI, logos, watermarks or poster layout"
+    "画面不得出现标题、段落、字母、汉字、数字、水印或logo，也不要书页、文件、标牌、"
+    "屏幕界面、带刻度读数的仪表或海报排版。"
+    "editorial science illustration with clear visual relationships; all diagram elements are unlabeled; "
+    "no visible text, letters, words, numbers, captions, labels, logos or watermarks"
 )
 
 _QUOTE_CHARS = "「」『』《》【】〈〉“”‘’\"'"
@@ -107,22 +111,22 @@ def _cover_prompt(topic: Dict[str, Any]) -> str:
     category = _pictorial_subject(topic.get("category") or "")
     head = _inline_point(topic, 0)
     return (
-        f"电影感场景，主题领域是{category}，核心概念是{title}，"
-        f"用一对处在冲突关系中的人物或物体来表达{head}，"
-        f"通过天空、墙面、雾气或暗部形成自然留白，{_SCENE_CONSTRAINT}"
+        f"{_KNOWLEDGE_STYLE}结构化概念封面，主题领域是{category}，核心概念是{title}；"
+        f"围绕{head}设计一个核心视觉隐喻，用前景与背景、完整样本与缺失样本的关系呈现判断，"
+        f"概念关系清晰，画面一侧保留自然留白，不做影视剧照。{_NO_TEXT_CONSTRAINT}"
     )
 
 
 def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
     """Build four complementary prompts for the article's major sections."""
     treatments = [
-        "起源或历史瞬间，人物正在完成一个具体动作，纪实电影感",
-        "机制或关系，通过两至三个真实物体的相互位置表达，避免箭头与流程",
-        "实验或证据现场，人物与实体器材互动，自然光线",
-        "现实生活场景中的应用或边界，不出现手机、电脑或可见界面",
+        "历史重建式科普插画，用时代环境、关键人物和代表性物件解释概念起源，场景细节承担信息",
+        "无文字机制图解，用三至五个具体元素拆解因果关系，允许无文字箭头、分层或路径表现作用过程",
+        "证据与实验型科普插画，清楚呈现实验装置、观察对象、对照关系和证据如何产生，不显示读数",
+        "应用与边界对照式科普插画，用左右对照或前后景并置真实应用与误用，让收益和限制同时可见",
     ]
     return [
-        f"电影感场景，围绕{_inline_point(topic, i)}，{treatment}，{_SCENE_CONSTRAINT}"
+        f"{_KNOWLEDGE_STYLE}围绕{_inline_point(topic, i)}，{treatment}。{_NO_TEXT_CONSTRAINT}"
         for i, treatment in enumerate(treatments)
     ]
 
