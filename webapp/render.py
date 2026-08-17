@@ -70,12 +70,14 @@ WORKDIR_ROOT = Path(__file__).resolve().parent / "_data" / "workdirs"
 # 所以运行时提示词不引用标题，只把主题描述成视觉语义，再统一追加中英
 # 双语硬约束。英文那半句是给以英文训练为主的模型看的，缺了它 MiniMax
 # 仍会渲染出伪拉丁字符。
-_NO_TEXT_CONSTRAINT = (
-    "纯视觉插画；画面中不得出现任何标题、段落、字母、汉字、数字、标签、"
-    "图例、水印、logo、标牌、书页、屏幕界面、图表或海报排版。"
-    "purely pictorial illustration, no text, no letters, no words, no numbers, "
-    "no captions, no labels, no watermark, no logo, no signage, no book pages, "
-    "no UI screens, no charts, no poster layout"
+_SCENE_CONSTRAINT = (
+    "电影感场景，横版构图，单一视觉焦点，主体正在完成一个具体动作；"
+    "主题词仅用于理解含义，绝不能以字符形式画进图片。"
+    "画面不得出现标题、段落、字母、汉字、数字、水印、logo、箭头、路线、"
+    "流程节点、标签、图例、表格、图表、书页、文件、标牌、屏幕、设备界面或海报布局。"
+    "purely visual cinematic scene, one focal subject performing a concrete action, "
+    "no text, letters, words, numbers, captions, labels, signs, screens, documents, "
+    "charts, arrows, diagrams, UI, logos, watermarks or poster layout"
 )
 
 _QUOTE_CHARS = "「」『』《》【】〈〉“”‘’\"'"
@@ -90,37 +92,37 @@ def _key_points(topic: Dict[str, Any]) -> List[str]:
     return [p for p in (topic.get("key_points") or []) if p]
 
 
+def _inline_point(topic: Dict[str, Any], index: int) -> str:
+    """Return the key_point used for the ``index``-th inline prompt."""
+    kps = [_pictorial_subject(p) for p in _key_points(topic)]
+    if kps:
+        return kps[index] if index < len(kps) else kps[-1]
+    title = _pictorial_subject(topic.get("title") or "")
+    return title or "抽象场景"
+
+
 def _cover_prompt(topic: Dict[str, Any]) -> str:
     """Cover-image prompt — sets the article's visual identity."""
     title = _pictorial_subject(topic.get("title") or "")
     category = _pictorial_subject(topic.get("category") or "")
-    kps = [_pictorial_subject(p) for p in _key_points(topic)]
-    head = kps[0] if kps else title
+    head = _inline_point(topic, 0)
     return (
-        f"一幅具体的编辑插画，主题领域是{category}，"
-        f"表现的概念是{title}，"
-        f"核心视觉意象：{head}，"
-        "学术插画风格，深色调，高质感构图，一侧保留干净留白（留白处同样不得有文字），"
-        f"{_NO_TEXT_CONSTRAINT}"
+        f"电影感场景，主题领域是{category}，核心概念是{title}，"
+        f"用一对处在冲突关系中的人物或物体来表达{head}，"
+        f"通过天空、墙面、雾气或暗部形成自然留白，{_SCENE_CONSTRAINT}"
     )
 
 
 def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
     """Build four complementary prompts for the article's major sections."""
-    title = _pictorial_subject(topic.get("title") or "")
-    kps = [_pictorial_subject(p) for p in _key_points(topic)]
-    fallback = title or "抽象概念场景"
     treatments = [
-        "起源或经典场景的具体瞬间，简洁线稿，浅色背景",
-        "核心机制的具体物象隐喻，层次清晰，低饱和度",
-        "关键证据或实验现场，纪实学术插画",
-        "现代应用与边界的视觉隐喻，编辑感构图",
+        "起源或历史瞬间，人物正在完成一个具体动作，纪实电影感",
+        "机制或关系，通过两至三个真实物体的相互位置表达，避免箭头与流程",
+        "实验或证据现场，人物与实体器材互动，自然光线",
+        "现实生活场景中的应用或边界，不出现手机、电脑或可见界面",
     ]
     return [
-        (
-            f"一幅具体的编辑插画，围绕{kps[i] if i < len(kps) else kps[-1] if kps else fallback}，"
-            f"{treatment}，{_NO_TEXT_CONSTRAINT}"
-        )
+        f"电影感场景，围绕{_inline_point(topic, i)}，{treatment}，{_SCENE_CONSTRAINT}"
         for i, treatment in enumerate(treatments)
     ]
 

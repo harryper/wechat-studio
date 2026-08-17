@@ -230,50 +230,37 @@ TOPIC = {
     "key_points": ["返航轰炸机的弹孔分布", "沉默的证据", "选择效应", "现代商业误用"],
 }
 
-FORBIDDEN_SUBJECTS = ["标签", "图例", "水印", "logo", "标牌", "书页", "屏幕界面", "海报排版", "图表"]
+TEXT_INDUCING_TERMS = [
+    "学术插画", "编辑插画", "概念图", "机制图", "线稿说明图",
+    "流程图", "信息图", "标题区域", "文字区域",
+]
 
 
 def _all_prompts(topic):
     return [render._cover_prompt(topic), *render._inline_prompts(topic)]
 
 
-def test_prompts_never_quote_the_title_with_book_brackets():
+def test_prompts_use_single_focus_cinematic_scenes():
     for prompt in _all_prompts(TOPIC):
-        assert "「" not in prompt and "」" not in prompt, prompt
+        assert "电影感场景" in prompt
+        assert "单一视觉焦点" in prompt
+        assert "具体动作" in prompt
+        for term in TEXT_INDUCING_TERMS:
+            assert term not in prompt
 
 
-def test_prompts_carry_the_english_hard_no_text_constraint():
-    for prompt in _all_prompts(TOPIC):
-        assert "no text, no letters, no words, no numbers" in prompt, prompt
+def test_cover_uses_natural_negative_space_not_title_area():
+    prompt = render._cover_prompt(TOPIC)
+    assert "天空、墙面、雾气或暗部" in prompt
+    assert "标题区域" not in prompt and "文字区域" not in prompt
 
 
-def test_prompts_forbid_labels_logos_watermarks_and_poster_layouts():
-    for prompt in _all_prompts(TOPIC):
-        lowered = prompt.lower()
-        for banned in FORBIDDEN_SUBJECTS:
-            assert banned.lower() in lowered, f"missing ban on {banned}: {prompt}"
-
-
-def test_prompts_keep_the_topic_as_visual_semantic_context():
-    cover = render._cover_prompt(TOPIC)
-    assert "认知偏差" in cover
-    assert "返航轰炸机的弹孔分布" in cover
-    inline = render._inline_prompts(TOPIC)
-    assert len(inline) == 4
-    for point, prompt in zip(TOPIC["key_points"], inline):
-        assert point in prompt
-
-
-def test_cover_prompt_keeps_clean_negative_space_without_text():
-    cover = render._cover_prompt(TOPIC)
-    assert "留白" in cover
-    assert "no text, no letters, no words, no numbers" in cover
-
-
-def test_prompts_avoid_text_inducing_composition_words():
-    for prompt in _all_prompts(TOPIC):
-        for lure in ["信息图", "流程图", "时间线", "学术海报", "数据图表", "infographic", "diagram"]:
-            assert lure not in prompt, f"{lure} leaks into prompt: {prompt}"
+def test_inline_prompts_have_distinct_scene_contracts():
+    prompts = render._inline_prompts(TOPIC)
+    assert "人物正在完成一个具体动作" in prompts[0]
+    assert "两至三个真实物体" in prompts[1]
+    assert "人物与实体器材互动" in prompts[2]
+    assert "现实生活场景" in prompts[3]
 
 
 def test_ensure_default_image_references_upgrades_legacy_article(tmp_path):
