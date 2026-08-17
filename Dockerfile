@@ -9,8 +9,11 @@ WORKDIR /app
 
 # curl for HEALTHCHECK. We don't need ffmpeg inside this container —
 # WeChat API calls (token + image upload) are HTTP only.
+# tesseract-ocr backs image_gen.detect_text: pseudo-text in AI artwork is
+# rejected locally so no cloud OCR account or quota is needed.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
+        tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first (better Docker layer cache).
