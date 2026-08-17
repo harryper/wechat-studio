@@ -144,6 +144,59 @@ def test_generate_images_reports_mixed_mode(tmp_path, monkeypatch):
     assert all((workdir / rel).is_file() for rel in render.default_image_rels())
 
 
+TOPIC = {
+    "id": "kb-001",
+    "title": "幸存者偏差",
+    "category": "认知偏差",
+    "key_points": ["返航轰炸机的弹孔分布", "沉默的证据", "选择效应", "现代商业误用"],
+}
+
+FORBIDDEN_SUBJECTS = ["标签", "图例", "水印", "logo", "标牌", "书页", "屏幕界面", "海报排版", "图表"]
+
+
+def _all_prompts(topic):
+    return [render._cover_prompt(topic), *render._inline_prompts(topic)]
+
+
+def test_prompts_never_quote_the_title_with_book_brackets():
+    for prompt in _all_prompts(TOPIC):
+        assert "「" not in prompt and "」" not in prompt, prompt
+
+
+def test_prompts_carry_the_english_hard_no_text_constraint():
+    for prompt in _all_prompts(TOPIC):
+        assert "no text, no letters, no words, no numbers" in prompt, prompt
+
+
+def test_prompts_forbid_labels_logos_watermarks_and_poster_layouts():
+    for prompt in _all_prompts(TOPIC):
+        lowered = prompt.lower()
+        for banned in FORBIDDEN_SUBJECTS:
+            assert banned.lower() in lowered, f"missing ban on {banned}: {prompt}"
+
+
+def test_prompts_keep_the_topic_as_visual_semantic_context():
+    cover = render._cover_prompt(TOPIC)
+    assert "认知偏差" in cover
+    assert "返航轰炸机的弹孔分布" in cover
+    inline = render._inline_prompts(TOPIC)
+    assert len(inline) == 4
+    for point, prompt in zip(TOPIC["key_points"], inline):
+        assert point in prompt
+
+
+def test_cover_prompt_keeps_clean_negative_space_without_text():
+    cover = render._cover_prompt(TOPIC)
+    assert "留白" in cover
+    assert "no text, no letters, no words, no numbers" in cover
+
+
+def test_prompts_avoid_text_inducing_composition_words():
+    for prompt in _all_prompts(TOPIC):
+        for lure in ["信息图", "流程图", "时间线", "学术海报", "数据图表", "infographic", "diagram"]:
+            assert lure not in prompt, f"{lure} leaks into prompt: {prompt}"
+
+
 def test_ensure_default_image_references_upgrades_legacy_article(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()

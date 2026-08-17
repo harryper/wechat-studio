@@ -66,37 +66,61 @@ WORKDIR_ROOT = Path(__file__).resolve().parent / "_data" / "workdirs"
 
 
 # ── 提示词构造 ────────────────────────────────────────────────────────
+# 图片服务会把提示词里被引号/书名号包裹的字符串当成"要画上去的文字"，
+# 所以运行时提示词不引用标题，只把主题描述成视觉语义，再统一追加中英
+# 双语硬约束。英文那半句是给以英文训练为主的模型看的，缺了它 MiniMax
+# 仍会渲染出伪拉丁字符。
+_NO_TEXT_CONSTRAINT = (
+    "纯视觉插画；画面中不得出现任何标题、段落、字母、汉字、数字、标签、"
+    "图例、水印、logo、标牌、书页、屏幕界面、图表或海报排版。"
+    "purely pictorial illustration, no text, no letters, no words, no numbers, "
+    "no captions, no labels, no watermark, no logo, no signage, no book pages, "
+    "no UI screens, no charts, no poster layout"
+)
+
+_QUOTE_CHARS = "「」『』《》【】〈〉“”‘’\"'"
+
+
+def _pictorial_subject(text: str) -> str:
+    """Strip typographic quoting so the text reads as a scene, not a string."""
+    return "".join(ch for ch in (text or "") if ch not in _QUOTE_CHARS).strip()
+
+
 def _key_points(topic: Dict[str, Any]) -> List[str]:
     return [p for p in (topic.get("key_points") or []) if p]
 
 
 def _cover_prompt(topic: Dict[str, Any]) -> str:
     """Cover-image prompt — sets the article's visual identity."""
-    title = (topic.get("title") or "").strip()
-    category = (topic.get("category") or "").strip()
-    kps = _key_points(topic)
+    title = _pictorial_subject(topic.get("title") or "")
+    category = _pictorial_subject(topic.get("category") or "")
+    kps = [_pictorial_subject(p) for p in _key_points(topic)]
     head = kps[0] if kps else title
     return (
-        f"「{title}」概念插画，"
-        f"{category}主题，"
-        f"核心意象：{head}，"
-        "学术插画风格，深色调，高质感构图，留白，不含文字"
+        f"一幅具体的编辑插画，主题领域是{category}，"
+        f"表现的概念是{title}，"
+        f"核心视觉意象：{head}，"
+        "学术插画风格，深色调，高质感构图，一侧保留干净留白（留白处同样不得有文字），"
+        f"{_NO_TEXT_CONSTRAINT}"
     )
 
 
 def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
     """Build four complementary prompts for the article's major sections."""
-    title = (topic.get("title") or "").strip()
-    kps = _key_points(topic)
-    fallback = title or "概念图示"
+    title = _pictorial_subject(topic.get("title") or "")
+    kps = [_pictorial_subject(p) for p in _key_points(topic)]
+    fallback = title or "抽象概念场景"
     treatments = [
-        "起源或经典场景示意，简洁线稿，浅色背景，无文字",
-        "核心机制的概念插画，层次清晰，低饱和度，无文字",
-        "关键证据或实验场景，纪实学术插画，无文字",
-        "现代应用与边界的视觉隐喻，编辑感构图，无文字",
+        "起源或经典场景的具体瞬间，简洁线稿，浅色背景",
+        "核心机制的具体物象隐喻，层次清晰，低饱和度",
+        "关键证据或实验现场，纪实学术插画",
+        "现代应用与边界的视觉隐喻，编辑感构图",
     ]
     return [
-        f"「{kps[i] if i < len(kps) else kps[-1] if kps else fallback}」{treatment}"
+        (
+            f"一幅具体的编辑插画，围绕{kps[i] if i < len(kps) else kps[-1] if kps else fallback}，"
+            f"{treatment}，{_NO_TEXT_CONSTRAINT}"
+        )
         for i, treatment in enumerate(treatments)
     ]
 
