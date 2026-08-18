@@ -164,6 +164,85 @@ def test_generate_images_accepts_every_successful_provider_result(tmp_path, monk
     assert not (workdir / "image-diagnostics.json").exists()
 
 
+ARTICLE_GROUNDING_MD = """# 一个含糊标题
+
+> **分类**：心理学
+
+![封面](images/cover.jpg)
+## 摘要
+
+青年在职业与城市之间反复迁移，通过探索逐渐建立身份认同。
+
+![配图](images/inline-1.jpg)
+## § 1 起源
+
+报纸专栏作者观察到青年频繁迁徙、更换职业与亲密关系，由此提出新的成年过渡隐喻。
+
+![配图](images/inline-2.jpg)
+## § 2 发展演变
+
+城市中产青年拥有主动探索空间，短期合同青年却被迫在家庭和临时工作之间循环。
+
+![配图](images/inline-3.jpg)
+## § 3 影响与应用
+
+心理咨询师与青年面对面梳理职业选择背后的价值冲突，帮助探索行为去病理化。
+
+![配图](images/inline-4.jpg)
+## § 4 反直觉点
+
+经济支持决定探索是自由还是被迫，同样的漂泊对不同青年意味着完全不同的机会。
+"""
+
+
+def test_generate_images_ground_each_prompt_in_matching_article_section(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    (workdir / "images").mkdir(parents=True)
+    (workdir / "article.md").write_text(ARTICLE_GROUNDING_MD, encoding="utf-8")
+    calls = []
+
+    def fake_generate(prompt, output, size):
+        calls.append(prompt)
+        Path(output).write_bytes(b"real")
+
+    monkeypatch.setattr(render, "generate_image", fake_generate)
+    topic = {"id": "custom-empty", "title": "一个含糊标题", "category": "心理学", "key_points": []}
+
+    render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+
+    expected_facts = [
+        "青年在职业与城市之间反复迁移",
+        "报纸专栏作者观察到青年频繁迁徙",
+        "城市中产青年拥有主动探索空间",
+        "心理咨询师与青年面对面梳理职业选择",
+        "经济支持决定探索是自由还是被迫",
+    ]
+    assert len(calls) == 5
+    for prompt, fact in zip(calls, expected_facts):
+        assert fact in prompt
+        assert "只使用内容依据中明确出现的实体、动作和环境" in prompt
+    assert all("一个含糊标题" not in prompt for prompt in calls)
+
+
+def test_generate_images_records_the_actual_prompts(tmp_path, monkeypatch):
+    workdir = tmp_path / "work"
+    (workdir / "images").mkdir(parents=True)
+    (workdir / "article.md").write_text(ARTICLE_GROUNDING_MD, encoding="utf-8")
+    generated = {}
+
+    def fake_generate(prompt, output, size):
+        generated[Path(output).stem] = prompt
+        Path(output).write_bytes(b"real")
+
+    monkeypatch.setattr(render, "generate_image", fake_generate)
+    topic = {"id": "custom-empty", "title": "一个含糊标题", "category": "心理学", "key_points": []}
+
+    render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+
+    saved = json.loads((workdir / "image-prompts.json").read_text(encoding="utf-8"))
+    assert saved == generated
+
+
 TOPIC = {
     "id": "kb-001",
     "title": "幸存者偏差",
@@ -200,14 +279,14 @@ def test_cover_uses_one_visual_metaphor_without_sending_the_full_title():
 
 def test_inline_prompts_have_distinct_but_consistent_scene_roles():
     prompts = render._inline_prompts(TOPIC)
-    assert "一个具体起源场景" in prompts[0]
-    assert "不使用时间轴" in prompts[0]
-    assert "三个具体对象" in prompts[1]
-    assert "一条纯色路径" in prompts[1]
-    assert "一个观察与验证场景" in prompts[2]
-    assert "器材必须与主题领域直接相关" in prompts[2]
-    assert "左右两组生活场景" in prompts[3]
-    assert "不加分栏框" in prompts[3]
+    assert "一个具体的起源瞬间" in prompts[0]
+    assert "人物正在做的动作和真实环境" in prompts[0]
+    assert "一个具体的发展变化瞬间" in prompts[1]
+    assert "实际选择表现变化" in prompts[1]
+    assert "一个具体的影响或应用瞬间" in prompts[2]
+    assert "人与人之间正在发生的互动" in prompts[2]
+    assert "一个反直觉判断" in prompts[3]
+    assert "不用抽象几何块代替事实" in prompts[3]
 
 
 def test_prompts_keep_topic_semantics_as_visual_context():

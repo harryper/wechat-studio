@@ -83,6 +83,11 @@ _COMPOSITION_CONSTRAINT = (
     "single self-contained illustration, zero typography or text-like marks"
 )
 
+_CONTENT_GROUNDING = (
+    "只使用内容依据中明确出现的实体、动作和环境，至少呈现三个可从正文直接追溯的视觉锚点；"
+    "不添加与正文无关的装饰性人物、物件、建筑或科研道具。"
+)
+
 _QUOTE_CHARS = "「」『』《》【】〈〉“”‘’\"'"
 
 
@@ -115,30 +120,89 @@ def _domain_constraint(topic: Dict[str, Any]) -> str:
     return "画面中的器材和符号必须直接属于主题领域，不添加通用科研装饰。"
 
 
-def _cover_prompt(topic: Dict[str, Any]) -> str:
+def _cover_prompt(topic: Dict[str, Any], brief: Optional[str] = None) -> str:
     """Cover-image prompt — sets the article's visual identity."""
     category = _pictorial_subject(topic.get("category") or "")
-    head = _inline_point(topic, 0)
+    source = _pictorial_subject(brief or _inline_point(topic, 0))
     return (
         f"{_KNOWLEDGE_STYLE}单幅概念封面，主题领域是{category}；"
-        f"围绕{head}设计一个核心视觉隐喻，用一个中心主体和一组对照物呈现判断，"
-        f"画面一侧保留自然留白。{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
+        f"内容依据：{source}。从中选择一个具体瞬间设计核心视觉隐喻，"
+        f"用一个中心主体和一组有事实依据的对照物呈现判断，画面一侧保留自然留白。"
+        f"{_CONTENT_GROUNDING}{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
     )
 
 
-def _inline_prompts(topic: Dict[str, Any]) -> List[str]:
+def _inline_prompts(
+    topic: Dict[str, Any], briefs: Optional[List[str]] = None
+) -> List[str]:
     """Build four complementary prompts for the article's major sections."""
     treatments = [
-        "一个具体起源场景，用最多两个人和两件代表物说明背景，不使用时间轴或资料页面",
-        "三个具体对象按前、中、后关系排列，用一条纯色路径表达因果，不使用节点框",
-        "一个观察与验证场景，器材必须与主题领域直接相关，用对象之间的差异呈现证据",
-        "左右两组生活场景在同一背景中自然并置，呈现应用与边界，不加分栏框",
+        "选择一个具体的起源瞬间，呈现人物正在做的动作和真实环境",
+        "选择一个具体的发展变化瞬间，用人物在职业、关系或地点之间的实际选择表现变化",
+        "选择一个具体的影响或应用瞬间，优先呈现人与人之间正在发生的互动",
+        "选择一个反直觉判断，以同一生活场景中的可见差异表达，不用抽象几何块代替事实",
+    ]
+    sources = [
+        _pictorial_subject(briefs[i])
+        if briefs and i < len(briefs) and briefs[i]
+        else _inline_point(topic, i)
+        for i in range(4)
     ]
     return [
-        f"{_KNOWLEDGE_STYLE}围绕{_inline_point(topic, i)}，{treatment}。"
-        f"{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
+        f"{_KNOWLEDGE_STYLE}内容依据：{sources[i]}。{treatment}。"
+        f"{_CONTENT_GROUNDING}{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
         for i, treatment in enumerate(treatments)
     ]
+
+
+def _visual_brief(markdown_fragment: str, limit: int = 420) -> str:
+    """Turn a Markdown section into a compact, image-model grounding brief."""
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", markdown_fragment)
+    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
+    text = re.sub(r"^>.*$", " ", text, flags=re.MULTILINE)
+    text = re.sub(r"[`*_#]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit]
+    boundary = max(clipped.rfind(mark) for mark in "。！？；")
+    return clipped[: boundary + 1] if boundary >= limit // 2 else clipped.rstrip()
+
+
+def _article_visual_briefs(markdown: str) -> Tuple[str, List[str]]:
+    """Extract the abstract and first four H2 sections as visual context."""
+    headings = list(re.finditer(r"^##\s+(.+?)\s*$", markdown, re.MULTILINE))
+    summary = ""
+    sections: List[str] = []
+    for index, match in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
+        brief = _visual_brief(markdown[match.end():end])
+        if not brief:
+            continue
+        if "摘要" in match.group(1):
+            summary = brief
+        elif len(sections) < 4:
+            sections.append(brief)
+    return summary, sections
+
+
+def _image_prompts_for_workdir(workdir: Path, topic: Dict[str, Any]) -> Dict[str, str]:
+    """Build and persist the exact prompts used by cover and inline images."""
+    try:
+        markdown = (workdir / "article.md").read_text(encoding="utf-8")
+    except OSError:
+        markdown = ""
+    summary, sections = _article_visual_briefs(markdown)
+    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
+    values = [
+        _cover_prompt(topic, summary or None),
+        *_inline_prompts(topic, sections or None),
+    ]
+    prompts = dict(zip(roles, values))
+    (workdir / "image-prompts.json").write_text(
+        json.dumps(prompts, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return prompts
 
 
 # ── PIL 占位图（AI provider 全失败时用）────────────────────────────────
@@ -329,11 +393,12 @@ def generate_images_in_workdir(
     img_dir.mkdir(exist_ok=True)
 
     roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
-    prompts = [_cover_prompt(topic), *_inline_prompts(topic)]
+    prompts = _image_prompts_for_workdir(workdir, topic)
 
     ai_failed: List[str] = []
     image_states: Dict[str, str] = {}
-    for rel, role, prompt in zip(image_rels, roles, prompts):
+    for rel, role in zip(image_rels, roles):
+        prompt = prompts[role]
         target = img_dir / Path(rel).name
         try:
             generate_image(
@@ -364,7 +429,7 @@ def generate_single_image_in_workdir(workdir: Path, topic: Dict[str, Any], role:
     roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
     if role not in roles:
         raise ValueError(f"不支持的图片位置：{role}")
-    prompts = dict(zip(roles, [_cover_prompt(topic), *_inline_prompts(topic)]))
+    prompts = _image_prompts_for_workdir(workdir, topic)
     target = workdir / "images" / f"{role}.jpg"
     state_path = workdir / "image-status.json"
     try:
