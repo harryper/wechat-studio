@@ -39,6 +39,7 @@ pip install -r requirements.txt
 ```dotenv
 # Web 生成文章默认使用 MiniMax 的 Anthropic Messages 兼容接口
 MINIMAX_API_KEY=your-minimax-key
+ARK_API_KEY=your-volcano-ark-key
 ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
 ANTHROPIC_AUTH_TOKEN=your-minimax-key
 ANTHROPIC_MODEL=MiniMax-M3

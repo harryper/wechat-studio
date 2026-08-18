@@ -30,6 +30,7 @@ services:
       - WECHAT_APPID=${WECHAT_APPID:-}
       - WECHAT_SECRET=${WECHAT_SECRET:-}
       # Image generation providers (image_gen.py uses these).
+      - ARK_API_KEY=${ARK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       # LLM endpoint for the knowledge-track article writer

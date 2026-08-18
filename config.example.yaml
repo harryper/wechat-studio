@@ -8,13 +8,14 @@ wechat:
   author: ""  # 默认署名（可选）
 
 # AI 图片生成
-# 支持 9 个 provider，配一个就能用，配多个自动 fallback。
+# 支持 10 个 provider，配一个就能用，配多个自动 fallback。
 #
 # ┌─────────────────┬────────────────────────────────────────────────┬────────────────────┐
 # │ Provider        │ 获取 API Key                                   │ 特点               │
 # ├─────────────────┼────────────────────────────────────────────────┼────────────────────┤
 # │ dashscope       │ https://dashscope.console.aliyun.com/          │ 阿里通义万相       │
 # │ jimeng          │ https://console.volcengine.com/iam             │ 字节即梦，中文强   │
+# │ seedream        │ https://console.volcengine.com/ark             │ 豆包生图，中文强   │
 # │ minimax         │ https://platform.minimaxi.com/                 │ 国内 provider      │
 # │ openai          │ https://platform.openai.com/api-keys           │ DALL-E，通用性强   │
 # │ azure_openai    │ Azure Portal                                   │ 国内可访问的 OpenAI│
@@ -40,6 +41,10 @@ image:
 # 不显式 export OPENAI_IMAGE_ENABLED=true 就不会产生 OpenAI 费用。
 # image:
 #   providers:
+#     - provider: seedream
+#       api_key: "${ARK_API_KEY}"
+#       model: "doubao-seedream-4-0-250828"
+#       base_url: "https://ark.cn-beijing.volces.com/api/v3"
 #     - provider: minimax
 #       api_key: "${MINIMAX_API_KEY}"
 #       model: "image-01"

@@ -4,6 +4,7 @@
 #   WECHAT_SECRET      - 微信公众号 secret
 #   OPENAI_API_KEY     - OpenAI API Key（用于 gpt-image-2）
 #   MINIMAX_API_KEY    - MiniMax API Key（文章生成 + 图片生成）
+#   ARK_API_KEY        - 火山方舟 API Key（用于 Doubao Seedream）
 # 可选：
 #   DASHSCOPE_API_KEY  - 阿里通义万相
 #   JIMENG_ACCESS_KEY  - 即梦 access_key_id
@@ -17,6 +18,10 @@ wechat:
 # AI 图片生成（多 provider 自动 fallback）
 image:
   providers:
+    - provider: "seedream"
+      api_key: "${ARK_API_KEY}"
+      model: "doubao-seedream-4-0-250828"
+      base_url: "https://ark.cn-beijing.volces.com/api/v3"
     - provider: "minimax"
       api_key: "${MINIMAX_API_KEY}"
       model: "image-01"

@@ -7,6 +7,7 @@ Supports multiple providers via a simple abstraction:
   - gemini (Google Gemini Imagen) — multimodal image generation
   - dashscope (Alibaba Tongyi Wanxiang) — good for Chinese prompts
   - minimax — Chinese provider
+  - seedream (Volcano Ark / Doubao Seedream) — Chinese text rendering
   - replicate — open-source models
   - azure_openai — Azure-hosted DALL-E
   - openrouter — multi-model proxy
@@ -115,22 +116,26 @@ _DEFAULT_SQ = "1024x1024"
 SIZE_PRESETS = {
     "cover": {
         "openai": _DEFAULT, "gemini": _DEFAULT,
-        "dashscope": _DEFAULT, "minimax": _DEFAULT, "replicate": _DEFAULT,
+        "dashscope": _DEFAULT, "minimax": _DEFAULT, "seedream": _DEFAULT,
+        "replicate": _DEFAULT,
         "azure_openai": _DEFAULT, "openrouter": _DEFAULT, "jimeng": _DEFAULT,
     },
     "article": {
         "openai": _DEFAULT, "gemini": _DEFAULT,
-        "dashscope": _DEFAULT, "minimax": _DEFAULT, "replicate": _DEFAULT,
+        "dashscope": _DEFAULT, "minimax": _DEFAULT, "seedream": _DEFAULT,
+        "replicate": _DEFAULT,
         "azure_openai": _DEFAULT, "openrouter": _DEFAULT, "jimeng": _DEFAULT,
     },
     "vertical": {
         "openai": _DEFAULT_V, "gemini": _DEFAULT_V,
-        "dashscope": _DEFAULT_V, "minimax": _DEFAULT_V, "replicate": _DEFAULT_V,
+        "dashscope": _DEFAULT_V, "minimax": _DEFAULT_V, "seedream": _DEFAULT_V,
+        "replicate": _DEFAULT_V,
         "azure_openai": _DEFAULT_V, "openrouter": _DEFAULT_V, "jimeng": _DEFAULT_V,
     },
     "square": {
         "openai": _DEFAULT_SQ, "gemini": _DEFAULT_SQ,
-        "dashscope": _DEFAULT_SQ, "minimax": _DEFAULT_SQ, "replicate": _DEFAULT_SQ,
+        "dashscope": _DEFAULT_SQ, "minimax": _DEFAULT_SQ, "seedream": _DEFAULT_SQ,
+        "replicate": _DEFAULT_SQ,
         "azure_openai": _DEFAULT_SQ, "openrouter": _DEFAULT_SQ, "jimeng": _DEFAULT_SQ,
     },
 }
@@ -352,6 +357,53 @@ class MiniMaxProvider(ImageProvider):
         if not b64_list:
             raise ValueError(f"No image in MiniMax response: {data}")
         return base64.b64decode(b64_list[0])
+
+
+class SeedreamProvider(ImageProvider):
+    """Doubao Seedream image generation via Volcano Ark."""
+
+    provider_key = "seedream"
+
+    def __init__(self, api_key: str,
+                 model: str = "doubao-seedream-4-0-250828",
+                 base_url: str = "https://ark.cn-beijing.volces.com/api/v3",
+                 **_kw):
+        self._api_key = api_key
+        self._model = model
+        self._base_url = base_url.rstrip("/")
+
+    def generate(self, prompt: str, size: str) -> bytes:
+        resp = requests.post(
+            f"{self._base_url}/images/generations",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._api_key}",
+            },
+            json={
+                "model": self._model,
+                "prompt": prompt,
+                "size": size,
+                "response_format": "b64_json",
+                "watermark": False,
+            },
+            timeout=180,
+        )
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ValueError(
+                f"Seedream error ({resp.status_code}): {resp.text[:200]}"
+            ) from exc
+        if resp.status_code != 200:
+            error = data.get("error", {})
+            message = error.get("message", str(data)) if isinstance(error, dict) else str(data)
+            raise ValueError(f"Seedream error ({resp.status_code}): {message}")
+        image = (data.get("data") or [{}])[0]
+        if image.get("b64_json"):
+            return base64.b64decode(image["b64_json"])
+        if image.get("url"):
+            return _download_image(image["url"])
+        raise ValueError(f"No image in Seedream response: {data}")
 
 
 class ReplicateProvider(ImageProvider):
@@ -617,6 +669,7 @@ PROVIDERS = {
     "gemini": GeminiProvider,
     "dashscope": DashScopeProvider,
     "minimax": MiniMaxProvider,
+    "seedream": SeedreamProvider,
     "replicate": ReplicateProvider,
     "azure_openai": AzureOpenAIProvider,
     "openrouter": OpenRouterProvider,

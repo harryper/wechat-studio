@@ -4,6 +4,7 @@ These guard the no-cost image pipeline: OpenAI stays off unless explicitly
 opted in, providers are tried in order, and the first successful API
 response is written unchanged (no OCR validator or quality retry).
 """
+import base64
 import inspect
 import sys
 from pathlib import Path
@@ -67,6 +68,56 @@ def test_disabled_provider_gating_leaves_entries_without_flag_enabled():
         {"provider": "openai", "api_key": "k2", "enabled": True},
     ))
     assert [p.provider_key for p in chain] == ["minimax", "openai"]
+
+
+def test_seedream_provider_is_available_in_provider_chain():
+    chain = image_gen._build_provider_chain(_config(
+        {
+            "provider": "seedream",
+            "api_key": "ark-key",
+            "model": "doubao-seedream-4-0-250828",
+        },
+    ))
+
+    assert [p.provider_key for p in chain] == ["seedream"]
+
+
+def test_seedream_provider_calls_ark_images_api_and_decodes_base64(monkeypatch):
+    captured = {}
+    expected = b"seedream-image"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"data": [{"b64_json": base64.b64encode(expected).decode()}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(url=url, headers=headers, json=json, timeout=timeout)
+        return Response()
+
+    monkeypatch.setattr(image_gen.requests, "post", fake_post)
+    provider = image_gen.SeedreamProvider(
+        api_key="ark-key",
+        model="doubao-seedream-4-0-250828",
+    )
+
+    result = provider.generate("一张科普插画", "1792x1024")
+
+    assert result == expected
+    assert captured["url"] == (
+        "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+    )
+    assert captured["headers"]["Authorization"] == "Bearer ark-key"
+    assert captured["json"] == {
+        "model": "doubao-seedream-4-0-250828",
+        "prompt": "一张科普插画",
+        "size": "1792x1024",
+        "response_format": "b64_json",
+        "watermark": False,
+    }
 
 
 # ── simple provider fallback loop ─────────────────────────────────────
