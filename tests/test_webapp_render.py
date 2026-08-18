@@ -175,39 +175,65 @@ def _all_prompts(topic):
     return [render._cover_prompt(topic), *render._inline_prompts(topic)]
 
 
-def test_prompts_restore_educational_editorial_style_without_visible_text():
+def test_prompts_use_a_low_density_single_scene_style():
     for prompt in _all_prompts(TOPIC):
-        assert "知识型编辑插画" in prompt
-        assert "现代科普杂志视觉" in prompt
-        assert "所有图形元素不加文字标签" in prompt
-        assert "不得出现标题、段落、字母、汉字、数字、水印或logo" in prompt
-        assert "电影感场景" not in prompt
-        assert "单一视觉焦点" not in prompt
+        assert "简洁单幅科普概念插画" in prompt
+        assert "最多两个人" in prompt
+        assert "最多四个主要物体" in prompt
+        assert "最多一条纯色关系路径" in prompt
+        assert "至少三分之一画面是干净背景" in prompt
+        assert "所有表面保持纯净空白" in prompt
+        assert "zero typography or text-like marks" in prompt
+        assert "现代科普杂志视觉" not in prompt
+        assert "信息层级明确" not in prompt
 
 
-def test_cover_is_a_structured_conceptual_science_cover():
+def test_cover_uses_one_visual_metaphor_without_sending_the_full_title():
     prompt = render._cover_prompt(TOPIC)
-    assert "结构化概念封面" in prompt
+    assert "单幅概念封面" in prompt
     assert "核心视觉隐喻" in prompt
-    assert "概念关系清晰" in prompt
     assert "自然留白" in prompt
+    assert TOPIC["title"] not in prompt
+    assert TOPIC["category"] in prompt
+    assert TOPIC["key_points"][0] in prompt
 
 
-def test_inline_prompts_have_distinct_science_explanation_roles():
+def test_inline_prompts_have_distinct_but_consistent_scene_roles():
     prompts = render._inline_prompts(TOPIC)
-    assert "历史重建式科普插画" in prompts[0]
-    assert "无文字机制图解" in prompts[1]
-    assert "无文字箭头、分层或路径" in prompts[1]
-    assert "证据与实验型科普插画" in prompts[2]
-    assert "应用与边界对照式科普插画" in prompts[3]
+    assert "一个具体起源场景" in prompts[0]
+    assert "不使用时间轴" in prompts[0]
+    assert "三个具体对象" in prompts[1]
+    assert "一条纯色路径" in prompts[1]
+    assert "一个观察与验证场景" in prompts[2]
+    assert "器材必须与主题领域直接相关" in prompts[2]
+    assert "左右两组生活场景" in prompts[3]
+    assert "不加分栏框" in prompts[3]
 
 
 def test_prompts_keep_topic_semantics_as_visual_context():
-    cover = render._cover_prompt(TOPIC)
-    assert TOPIC["title"] in cover
-    assert TOPIC["category"] in cover
     for point, prompt in zip(TOPIC["key_points"], render._inline_prompts(TOPIC)):
         assert point in prompt
+
+
+def test_prompts_reject_text_bearing_layout_shapes():
+    for prompt in _all_prompts(TOPIC):
+        assert "不用杂志页面、信息图版面、卡片、文本框、纸张、书页、表格、坐标轴、仪表盘或屏幕" in prompt
+
+
+def test_behavioral_science_prompts_reject_generic_lab_decorations():
+    for prompt in _all_prompts(TOPIC):
+        assert "不得使用烧瓶、试管、分子结构、化学公式、显微镜或装饰性柱状图" in prompt
+
+
+def test_non_behavioral_topics_get_a_generic_domain_relevance_rule():
+    topic = {
+        "title": "板块构造",
+        "category": "地质学",
+        "key_points": ["大陆漂移", "地幔对流", "地震证据", "板块边界"],
+    }
+    prompt = render._cover_prompt(topic)
+    assert "器材和符号必须直接属于主题领域" in prompt
+    assert "不得使用烧瓶、试管" not in prompt
 
 
 def test_ensure_default_image_references_upgrades_legacy_article(tmp_path):
