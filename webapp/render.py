@@ -83,6 +83,17 @@ _COMPOSITION_CONSTRAINT = (
     "single self-contained illustration, zero typography or text-like marks"
 )
 
+_COVER_COMPOSITION_CONSTRAINT = (
+    "画面只由一个连续场景构成，最多两个人、最多四个主要物体、最多一条纯色关系路径；"
+    "主体与关键物件横向延展，覆盖约百分之八十的画面宽度，构图重心居中，左右视觉重量平衡，"
+    "四周仅保留约百分之八的呼吸边距。"
+    "不预留标题区域，不做左右分屏背景，不得出现超过画面四分之一的连续纯色空白。"
+    "不用杂志页面、信息图版面、卡片、文本框、纸张、书页、表格、坐标轴、仪表盘或屏幕。"
+    "所有表面保持纯净空白，不生成任何可读或类似文字的符号。"
+    "single self-contained illustration, balanced full-frame composition, "
+    "zero typography or text-like marks"
+)
+
 _CONTENT_GROUNDING = (
     "只使用内容依据中明确出现的实体、动作和环境，至少呈现三个可从正文直接追溯的视觉锚点；"
     "不添加与正文无关的装饰性人物、物件、建筑或科研道具。"
@@ -127,8 +138,8 @@ def _cover_prompt(topic: Dict[str, Any], brief: Optional[str] = None) -> str:
     return (
         f"{_KNOWLEDGE_STYLE}单幅概念封面，主题领域是{category}；"
         f"内容依据：{source}。从中选择一个具体瞬间设计核心视觉隐喻，"
-        f"用一个中心主体和一组有事实依据的对照物呈现判断，画面一侧保留自然留白。"
-        f"{_CONTENT_GROUNDING}{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
+        f"用一个中心主体和一组有事实依据的对照物呈现判断。"
+        f"{_CONTENT_GROUNDING}{_domain_constraint(topic)}{_COVER_COMPOSITION_CONSTRAINT}"
     )
 
 

@@ -260,21 +260,32 @@ def test_prompts_use_a_low_density_single_scene_style():
         assert "最多两个人" in prompt
         assert "最多四个主要物体" in prompt
         assert "最多一条纯色关系路径" in prompt
-        assert "至少三分之一画面是干净背景" in prompt
         assert "所有表面保持纯净空白" in prompt
         assert "zero typography or text-like marks" in prompt
         assert "现代科普杂志视觉" not in prompt
         assert "信息层级明确" not in prompt
+    for prompt in render._inline_prompts(TOPIC):
+        assert "至少三分之一画面是干净背景" in prompt
 
 
 def test_cover_uses_one_visual_metaphor_without_sending_the_full_title():
     prompt = render._cover_prompt(TOPIC)
     assert "单幅概念封面" in prompt
     assert "核心视觉隐喻" in prompt
-    assert "自然留白" in prompt
     assert TOPIC["title"] not in prompt
     assert TOPIC["category"] in prompt
     assert TOPIC["key_points"][0] in prompt
+
+
+def test_cover_fills_the_frame_without_a_title_reservation_area():
+    prompt = render._cover_prompt(TOPIC)
+    assert "覆盖约百分之八十的画面宽度" in prompt
+    assert "构图重心居中，左右视觉重量平衡" in prompt
+    assert "四周仅保留约百分之八的呼吸边距" in prompt
+    assert "不预留标题区域" in prompt
+    assert "不得出现超过画面四分之一的连续纯色空白" in prompt
+    assert "画面一侧保留自然留白" not in prompt
+    assert "至少三分之一画面是干净背景" not in prompt
 
 
 def test_inline_prompts_have_distinct_but_consistent_scene_roles():
