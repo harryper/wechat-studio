@@ -2,7 +2,6 @@
 
 Usage:
     python3 scripts/learn_theme.py <url>          # fetch + analyse live article
-    python3 scripts/learn_theme.py --file <path>  # analyse a saved HTML file
 """
 
 import argparse
@@ -556,22 +555,6 @@ def generate_theme_yaml(name: str, title: str, analyzed: dict) -> str:
     }
 
     return yaml.dump(theme_data, allow_unicode=True, default_flow_style=False, sort_keys=False)
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point / smoke test
-# ---------------------------------------------------------------------------
-
-def _load_from_file(path: str):
-    """Load #js_content from a local HTML file (for smoke testing)."""
-    with open(path, encoding="utf-8") as fh:
-        soup = BeautifulSoup(fh.read(), "html.parser")
-    content = soup.find(id="js_content")
-    if content is None:
-        print(f"Error: #js_content not found in {path}", file=sys.stderr)
-        sys.exit(1)
-    _attach_title(soup, content)
-    return content
 
 
 def main():

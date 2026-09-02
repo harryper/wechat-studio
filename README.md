@@ -184,10 +184,11 @@ wechat-studio/
 ├── webapp/                  # Flask 工作台、异步任务和预览历史
 ├── toolkit/                 # 排版、生图、微信 API 和发布 CLI
 ├── scripts/                 # 写作、选题、检测和学习工具
-├── references/              # 知识库与按需加载的写作规范
+├── references/              # 运行时知识库与按需加载的写作规范
+├── docs/superpowers/        # 当前设计和实施计划
 ├── toolkit/themes/          # 38 套主题 YAML
 ├── clients/                 # 本地客户配置，不进入 Git
-└── dist/openclaw/           # OpenClaw 分发包
+└── dist/openclaw/           # 自动生成的 OpenClaw 运行时分发包
 ```
 
 MIT · <https://github.com/harryper/wechat-studio>

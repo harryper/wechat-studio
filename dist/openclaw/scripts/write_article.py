@@ -272,7 +272,6 @@ def write_article(
 # ── CLI 入口 ─────────────────────────────────────────────────────────
 def _main(argv: list) -> int:
     import argparse
-    import json
 
     ap = argparse.ArgumentParser(description="Generate a knowledge-track article via LLM")
     ap.add_argument("--topic", required=True,

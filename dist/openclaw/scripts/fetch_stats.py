@@ -4,7 +4,6 @@ Fetch WeChat article statistics and update client history.yaml.
 
 Uses WeChat Data Analytics API to pull article performance:
   - /datacube/getarticlesummary (daily summary)
-  - /datacube/getarticletotal (cumulative, currently unused)
 
 Usage:
     python3 fetch_stats.py
@@ -15,7 +14,6 @@ Requires: wechat appid/secret in config.yaml (skill root or toolkit dir)
 """
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -101,22 +99,6 @@ def fetch_article_summary(token: str, date: str) -> list[dict]:
             # No data for this date (article not yet published or no reads)
             return []
         print(f"[warn] getarticlesummary error: {errcode} {errmsg}", file=sys.stderr)
-        return []
-    return data["list"]
-
-
-def fetch_article_total(token: str, date: str) -> list[dict]:
-    """
-    Fetch cumulative article stats.
-    API: POST /datacube/getarticletotal
-    """
-    resp = requests.post(
-        "https://api.weixin.qq.com/datacube/getarticletotal",
-        params={"access_token": token},
-        json={"begin_date": date, "end_date": date},
-    )
-    data = resp.json()
-    if "list" not in data:
         return []
     return data["list"]
 

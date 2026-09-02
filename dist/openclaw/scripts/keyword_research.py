@@ -2,7 +2,6 @@
 """Lookup estimated search volume for academic concept titles."""
 
 import sys
-from typing import Optional
 
 
 def _fetch(title: str) -> dict:

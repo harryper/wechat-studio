@@ -11,7 +11,7 @@ Usage:
 import argparse
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 import yaml
