@@ -21,9 +21,71 @@ from scripts.load_corpus import (
 )
 
 
-def test_load_corpus_returns_60():
+EXPECTED_TOPICS_BY_CATEGORY = {
+    "understanding_world": [
+        "第一性原理",
+        "二阶思维",
+        "系统思维",
+        "激励机制",
+        "古德哈特定律",
+    ],
+    "decision_making": [
+        "机会成本",
+        "沉没成本",
+        "可逆与不可逆决策",
+        "帕累托法则",
+        "逆向思维",
+    ],
+    "probability": [
+        "幸存者偏差",
+        "基准率",
+        "贝叶斯思维",
+        "期望值",
+        "避免出局",
+    ],
+    "human_nature": [
+        "确认偏误",
+        "基本归因错误",
+        "损失厌恶",
+        "峰终定律",
+        "社会比较",
+    ],
+    "long_term_growth": [
+        "复利效应",
+        "路径依赖",
+        "能力圈",
+        "杠杆",
+        "比较优势",
+    ],
+    "self_knowledge": [
+        "控制二分法",
+        "享乐适应",
+        "身份认同驱动",
+        "选择悖论",
+        "有限游戏与无限游戏",
+    ],
+}
+
+
+def test_load_corpus_returns_30():
     corpus = load_corpus()
-    assert len(corpus) == 60
+    assert len(corpus) == 30
+
+
+def test_corpus_matches_cognitive_model_curriculum():
+    corpus = load_corpus()
+    actual = {}
+    for topic in corpus:
+        actual.setdefault(topic["category"], []).append(topic["title"])
+    assert actual == EXPECTED_TOPICS_BY_CATEGORY
+
+
+def test_each_topic_combines_principle_evidence_application_and_boundary():
+    required_angles = ("原理：", "证据：", "应用：", "边界：")
+    for topic in load_corpus():
+        assert len(topic["key_points"]) == len(required_angles), topic
+        for angle, point in zip(required_angles, topic["key_points"]):
+            assert point.startswith(angle), topic
 
 
 def test_load_corpus_ids_unique():
@@ -41,7 +103,7 @@ def test_load_corpus_required_fields():
         assert "key_points" in t, t
         assert "origin" in t, t
         assert "caution" in t, t
-        assert 3 <= len(t["key_points"]) <= 5, t
+        assert len(t["key_points"]) == 4, t
 
 
 def test_next_topic_returns_first_unused(monkeypatch):
@@ -118,8 +180,8 @@ def test_exhaustion_pct_zero_when_no_history(monkeypatch):
 
 
 def test_exhaustion_pct_partial(monkeypatch):
-    """30 of 60 IDs used → 0.5."""
-    used = {f"kb-{i:03d}" for i in range(1, 31)}
+    """15 of 30 IDs used → 0.5."""
+    used = {f"kb-{i:03d}" for i in range(1, 16)}
     monkeypatch.setattr("scripts.load_corpus.used_topic_ids", lambda client: used)
     assert exhaustion_pct("any_client") == pytest.approx(0.5)
 
@@ -139,8 +201,8 @@ def test_exhaustion_pct_ignores_unknown_ids(monkeypatch):
     monkeypatch.setattr(
         "scripts.load_corpus.used_topic_ids", lambda client: ghost_used
     )
-    # Only kb-001..kb-010 are real corpus IDs → 10/60
-    assert exhaustion_pct("any_client") == pytest.approx(10 / 60)
+    # Only kb-001..kb-010 are real corpus IDs → 10/30
+    assert exhaustion_pct("any_client") == pytest.approx(10 / 30)
 
 
 def test_corpus_path_exists_and_is_yaml():

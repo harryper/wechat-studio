@@ -23,8 +23,13 @@ def test_validate_topic_ok():
     topic = {
         "id": "kb-999",
         "title": "测试",
-        "category": "cognitive_bias",
-        "key_points": ["p1", "p2", "p3"],
+        "category": "understanding_world",
+        "key_points": [
+            "原理：测试原理",
+            "证据：测试证据",
+            "应用：测试应用",
+            "边界：测试边界",
+        ],
         "origin": "测试起源",
         "caution": "no",
     }
@@ -50,6 +55,19 @@ def test_validate_topic_bad_category():
         validate_topic(topic)
 
 
+def test_validate_topic_requires_combined_article_angles():
+    topic = {
+        "id": "kb-999",
+        "title": "测试",
+        "category": "understanding_world",
+        "key_points": ["起源：测试", "机制：测试", "案例：测试", "应用：测试"],
+        "origin": "测试起源",
+        "caution": "no",
+    }
+    with pytest.raises(ValueError, match="principle, evidence, application, boundary"):
+        validate_topic(topic)
+
+
 def test_append_topic(tmp_path):
     corpus_path = tmp_path / "corpus.yaml"
     corpus_path.write_text(yaml.safe_dump([{"id": "kb-001", "title": "t1"}], allow_unicode=True))
@@ -57,8 +75,13 @@ def test_append_topic(tmp_path):
     new_topic = {
         "id": "kb-002",
         "title": "测试",
-        "category": "cognitive_bias",
-        "key_points": ["p1", "p2", "p3"],
+        "category": "understanding_world",
+        "key_points": [
+            "原理：测试原理",
+            "证据：测试证据",
+            "应用：测试应用",
+            "边界：测试边界",
+        ],
         "origin": "起源",
         "caution": "no",
     }

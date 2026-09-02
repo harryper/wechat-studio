@@ -10,14 +10,15 @@ import yaml
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CORPUS_PATH = SKILL_DIR / "references" / "knowledge-corpus.yaml"
 VALID_CATEGORIES = {
-    "cognitive_bias",
-    "decision_theory",
-    "philosophy",
-    "psychology",
-    "economics",
-    "paradox",
+    "understanding_world",
+    "decision_making",
+    "probability",
+    "human_nature",
+    "long_term_growth",
+    "self_knowledge",
 }
 REQUIRED_FIELDS = {"id", "title", "category", "key_points", "origin"}
+REQUIRED_KEY_POINT_PREFIXES = ("原理：", "证据：", "应用：", "边界：")
 
 
 def next_id(existing: list[dict]) -> str:
@@ -37,9 +38,16 @@ def validate_topic(topic: dict) -> None:
         raise ValueError(f"missing required field: {missing}")
     if topic["category"] not in VALID_CATEGORIES:
         raise ValueError(f"invalid category: {topic['category']}")
-    if not 3 <= len(topic["key_points"]) <= 5:
+    if len(topic["key_points"]) != len(REQUIRED_KEY_POINT_PREFIXES):
         raise ValueError(
-            f"key_points must have 3-5 bullets, got {len(topic['key_points'])}"
+            "key_points must combine principle, evidence, application, boundary"
+        )
+    if any(
+        not point.startswith(prefix)
+        for point, prefix in zip(topic["key_points"], REQUIRED_KEY_POINT_PREFIXES)
+    ):
+        raise ValueError(
+            "key_points must combine principle, evidence, application, boundary"
         )
     if not topic["origin"].strip():
         raise ValueError("origin cannot be empty")
