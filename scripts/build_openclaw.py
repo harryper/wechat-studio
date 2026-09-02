@@ -26,6 +26,19 @@ COPY_FILES = [
     "VERSION",
 ]
 
+# Files that are useful only while developing or packaging the source tree.
+# Apply these patterns to every copied directory so development artifacts do
+# not leak into the runtime distribution if they are added in the future.
+COPY_IGNORE_PATTERNS = (
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "migrate_web_state_to_d1.py",
+    "build_openclaw.py",
+    "plans",
+    "specs",
+)
+
 # Frontmatter keys to strip (OpenClaw ignores allowed-tools)
 STRIP_FRONTMATTER_KEYS = {"allowed-tools"}
 
@@ -105,9 +118,11 @@ def build(output_dir: Path):
         if src.is_dir():
             if dst.exists():
                 shutil.rmtree(dst)
-            shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
-                "__pycache__", "*.pyc", "*.pyo", "migrate_web_state_to_d1.py",
-            ))
+            shutil.copytree(
+                src,
+                dst,
+                ignore=shutil.ignore_patterns(*COPY_IGNORE_PATTERNS),
+            )
             print(f"  {d}/ → {dst}")
 
     # Copy supporting files
