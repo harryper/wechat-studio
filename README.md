@@ -6,7 +6,7 @@
 
 ## 功能概览
 
-- 从 `references/knowledge-corpus.yaml` 选择选题，并按关键词匹配写作框架。
+- 从 `references/knowledge-corpus.yaml` 的 30 个认知模型中选择选题；六个分类分别覆盖认识世界、做决策、理解概率、理解人性、长期发展和理解自己。每个主题按原理、证据、应用、边界四个角度组织，并匹配写作框架。
 - 通过 Anthropic Messages 兼容接口生成 2500–4000 字 Markdown 长文。
 - 异步生成 1 张封面和 4 张内文图；单张失败时生成本地占位图，不中断整篇任务。
 - 提供 38 套主题、桌面/移动预览、Markdown 在线修改和 D1 内容历史。
@@ -27,7 +27,7 @@ git clone --depth 1 https://github.com/xiaohuailabs/xiaohu-wechat-format.git \
   ~/.openclaw/workspace/skills/xiaohu-wechat-format
 cd ~/.openclaw/workspace/skills/wechat-studio
 mkdir -p clients
-pip install -r requirements.txt
+pip install -r requirements.txt pytest
 ```
 
 仓库已自带使用环境变量占位符的 `config.yaml`，通常不需要复制配置文件。`config.example.yaml` 仅用于查看单供应商和多供应商的完整写法。
@@ -39,17 +39,20 @@ pip install -r requirements.txt
 ```dotenv
 # Web 生成文章默认使用 MiniMax 的 Anthropic Messages 兼容接口
 MINIMAX_API_KEY=your-minimax-key
-ARK_API_KEY=your-volcano-ark-key
 ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
 ANTHROPIC_AUTH_TOKEN=your-minimax-key
 ANTHROPIC_MODEL=MiniMax-M3
+
+# 图片默认按 Seedream → MiniMax 的顺序生成
+ARK_API_KEY=your-volcano-ark-key
 
 # 创建微信草稿时必需
 WECHAT_APPID=wx_your_appid
 WECHAT_SECRET=your_appsecret
 
-# 可选的图片生成回退；均未配置时使用本地占位图
+# 可选的 OpenAI 图片回退；默认关闭，启用后才会产生相关费用
 OPENAI_API_KEY=sk-...
+OPENAI_IMAGE_ENABLED=false
 
 # Web 登录，正式部署务必修改
 APP_PASSWORD=a-strong-password
@@ -132,7 +135,7 @@ python3 toolkit/cli.py publish article.md --cover cover.png --title "标题"
 python3 scripts/fetch_hotspots.py --limit 20
 python3 scripts/humanness_score.py article.md --verbose
 python3 scripts/fetch_stats.py --client CLIENT --days 7
-python3 scripts/learn_edits.py --client CLIENT --draft draft.md --final final.md
+python3 scripts/learn_edits.py --draft draft.md --final final.md
 ```
 
 ## 升级与部署
@@ -153,9 +156,16 @@ curl -fsS http://127.0.0.1:9997/api/health
 ```bash
 python3 -m pytest -q
 python3 -m compileall -q toolkit scripts webapp
-python3 scripts/diagnose.py --json
 docker compose config -q
 ```
+
+按需检查本机依赖、凭据和个性化配置：
+
+```bash
+python3 scripts/diagnose.py --json
+```
+
+该诊断命令发现缺失配置时会返回非零状态；根据 JSON 中的 `checks` 和 `recommendations` 补齐实际需要的项目即可。
 
 ## 常见问题
 
