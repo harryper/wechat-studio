@@ -9,7 +9,6 @@ Falls back to a minimal converter for other themes.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass

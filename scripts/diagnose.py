@@ -24,7 +24,6 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_MODULES = [
     ("markdown", "markdown"),
     ("bs4", "beautifulsoup4"),
-    ("cssutils", "cssutils"),
     ("requests", "requests"),
     ("yaml", "pyyaml"),
     ("pygments", "Pygments"),

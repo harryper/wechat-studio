@@ -1,22 +1,14 @@
 """
 Theme system for WeChat Studio.
 
-Loads YAML theme definitions and provides CSS parsing utilities
-for the inline style converter.
+Loads YAML theme definitions for the converter and theme gallery.
 """
 
-import logging
 import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
-import cssutils
 import yaml
-
-# Suppress cssutils warnings (it's very noisy about non-standard properties)
-cssutils.log.setLevel(logging.CRITICAL)
 
 
 @dataclass
@@ -99,99 +91,3 @@ def list_themes(themes_dir: str = None) -> list[str]:
             names.append(filename.rsplit(".", 1)[0])
 
     return sorted(names)
-
-
-def _resolve_css_variables(css_text: str, colors: dict) -> str:
-    """
-    Replace var(--xxx) references in CSS with actual color values.
-
-    Supports var(--primary), var(--secondary), etc. based on the
-    colors dict keys. The CSS variable name is mapped by stripping
-    the leading --.
-    """
-    def replacer(match: re.Match) -> str:
-        var_name = match.group(1).strip()
-        # Strip leading -- prefix
-        key = var_name.lstrip("-")
-        # Also try with hyphens converted to underscores
-        key_underscore = key.replace("-", "_")
-        if key in colors:
-            return str(colors[key])
-        if key_underscore in colors:
-            return str(colors[key_underscore])
-        # Return original if not found
-        return match.group(0)
-
-    return re.sub(r"var\(\s*--([a-zA-Z0-9_-]+)\s*\)", replacer, css_text)
-
-
-def _is_simple_selector(selector: str) -> bool:
-    """
-    Check if a selector is simple enough for inline styling.
-
-    Rejects pseudo-classes, pseudo-elements, media queries,
-    and complex combinators.
-    """
-    selector = selector.strip()
-
-    # Reject if contains any of these characters
-    reject_chars = (":", "@", ">", "+", "~", "[", "*")
-    for ch in reject_chars:
-        if ch in selector:
-            return False
-
-    return True
-
-
-def get_inline_css_rules(theme: Theme) -> dict[str, dict[str, str]]:
-    """
-    Parse a theme's base_css into a selector -> {property: value} dict.
-
-    This resolves CSS variable references using theme.colors, then
-    parses the CSS with cssutils. Only simple selectors are included
-    (no pseudo-classes, pseudo-elements, media queries, or complex
-    combinators).
-
-    Args:
-        theme: A Theme object with base_css and colors.
-
-    Returns:
-        Dict mapping CSS selectors to dicts of {property: value}.
-        Example: {"h1": {"color": "#333", "font-size": "28px"}, ...}
-    """
-    # Resolve CSS variables first
-    resolved_css = _resolve_css_variables(theme.base_css, theme.colors)
-
-    # Parse with cssutils
-    sheet = cssutils.parseString(resolved_css, validate=False)
-
-    rules: dict[str, dict[str, str]] = {}
-
-    for rule in sheet:
-        if rule.type != rule.STYLE_RULE:
-            continue
-
-        selector_text = rule.selectorText
-
-        # A rule can have multiple comma-separated selectors
-        selectors = [s.strip() for s in selector_text.split(",")]
-
-        # Build property dict for this rule
-        props: dict[str, str] = {}
-        for prop in rule.style:
-            props[prop.name] = prop.value
-
-        if not props:
-            continue
-
-        for selector in selectors:
-            if not _is_simple_selector(selector):
-                continue
-
-            if selector in rules:
-                # Merge (later rules override)
-                rules[selector].update(props)
-            else:
-                rules[selector] = dict(props)
-
-    return rules

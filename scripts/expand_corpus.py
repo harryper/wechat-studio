@@ -2,7 +2,6 @@
 """Add new topics to the knowledge corpus."""
 
 import argparse
-import sys
 from pathlib import Path
 
 import yaml
