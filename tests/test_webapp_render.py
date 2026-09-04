@@ -221,7 +221,12 @@ def test_generate_images_ground_each_prompt_in_matching_article_section(tmp_path
     for prompt, fact in zip(calls, expected_facts):
         assert fact in prompt
         assert "只使用内容依据中明确出现的实体、动作和环境" in prompt
-    assert all("一个含糊标题" not in prompt for prompt in calls)
+    assert "“一个含糊标题”" in calls[0]
+    assert all("一个含糊标题" not in prompt for prompt in calls[1:])
+    expected_headings = ["起源", "发展演变", "影响与应用", "反直觉点"]
+    for prompt, heading in zip(calls[1:], expected_headings):
+        assert f"章节：{heading}" in prompt
+        assert f"“{heading}”" in prompt
 
 
 def test_generate_images_records_the_actual_prompts(tmp_path, monkeypatch):
@@ -254,50 +259,84 @@ def _all_prompts(topic):
     return [render._cover_prompt(topic), *render._inline_prompts(topic)]
 
 
-def test_prompts_use_a_low_density_single_scene_style():
+def test_prompts_share_one_editorial_visual_system():
     for prompt in _all_prompts(TOPIC):
-        assert "简洁单幅科普概念插画" in prompt
+        assert "当代科普编辑插画" in prompt
+        assert "全篇统一视觉系统" in prompt
+        assert "低饱和海军蓝、赭石与暖象牙色" in prompt
         assert "最多两个人" in prompt
-        assert "最多四个主要物体" in prompt
-        assert "最多一条纯色关系路径" in prompt
-        assert "所有表面保持纯净空白" in prompt
-        assert "zero typography or text-like marks" in prompt
-        assert "现代科普杂志视觉" not in prompt
-        assert "信息层级明确" not in prompt
-    for prompt in render._inline_prompts(TOPIC):
-        assert "至少三分之一画面是干净背景" in prompt
+        assert "最多四个关键物件" in prompt
 
 
-def test_cover_uses_one_visual_metaphor_without_sending_the_full_title():
-    prompt = render._cover_prompt(TOPIC)
+def test_cover_uses_the_exact_short_topic_name_as_optional_visible_text():
+    topic = {
+        **TOPIC,
+        "title": "损失厌恶：人类决策中收益与损失的不对称评价",
+    }
+    prompt = render._cover_prompt(topic)
     assert "单幅概念封面" in prompt
-    assert "核心视觉隐喻" in prompt
-    assert TOPIC["title"] not in prompt
-    assert TOPIC["category"] in prompt
-    assert TOPIC["key_points"][0] in prompt
+    assert "可见文字" in prompt
+    assert "“损失厌恶”" in prompt
+    assert topic["title"] not in prompt
+    assert "不得添加其他文字、数字、Logo 或水印" in prompt
 
 
-def test_cover_fills_the_frame_without_a_title_reservation_area():
+def test_cover_uses_visual_hierarchy_without_percentage_layout_rules():
     prompt = render._cover_prompt(TOPIC)
-    assert "覆盖约百分之八十的画面宽度" in prompt
-    assert "构图重心居中，左右视觉重量平衡" in prompt
-    assert "四周仅保留约百分之八的呼吸边距" in prompt
-    assert "不预留标题区域" in prompt
-    assert "不得出现超过画面四分之一的连续纯色空白" in prompt
-    assert "画面一侧保留自然留白" not in prompt
-    assert "至少三分之一画面是干净背景" not in prompt
+    assert "主体、关键动作和对比关系一眼可辨" in prompt
+    assert "百分之八十" not in prompt
+    assert "百分之八" not in prompt
+    assert "四分之一" not in prompt
 
 
-def test_inline_prompts_have_distinct_but_consistent_scene_roles():
-    prompts = render._inline_prompts(TOPIC)
-    assert "一个具体的起源瞬间" in prompts[0]
-    assert "人物正在做的动作和真实环境" in prompts[0]
-    assert "一个具体的发展变化瞬间" in prompts[1]
-    assert "实际选择表现变化" in prompts[1]
-    assert "一个具体的影响或应用瞬间" in prompts[2]
-    assert "人与人之间正在发生的互动" in prompts[2]
-    assert "一个反直觉判断" in prompts[3]
-    assert "不用抽象几何块代替事实" in prompts[3]
+def test_inline_prompts_follow_actual_sections_instead_of_fixed_scene_roles():
+    briefs = [
+        ("参照点如何改变判断", "顾客同时看到涨价商品和降价商品，重新衡量得失。"),
+        ("硬币实验", "参与者先拿到一枚硬币，再决定是否交换。"),
+        ("消费现场", "旅客在退票窗口比较手续费与继续出行的成本。"),
+        ("适用边界", "经验丰富的交易员仍会检查概率与最终财富。"),
+    ]
+    prompts = render._inline_prompts(TOPIC, briefs)
+    for prompt, (heading, fact) in zip(prompts, briefs):
+        assert f"章节：{heading}" in prompt
+        assert fact in prompt
+        assert f"“{heading}”" in prompt
+    joined = "".join(prompts)
+    assert "起源瞬间" not in joined
+    assert "发展变化瞬间" not in joined
+    assert "影响或应用瞬间" not in joined
+    assert "反直觉判断" not in joined
+
+
+def test_article_briefs_keep_full_section_heading_for_visual_context():
+    markdown = """# 标题
+
+## 摘要
+
+摘要内容。
+
+## § 1 参照点如何改变收益与损失的判断
+
+顾客把同样金额的损失看得比收益更重。
+"""
+    _, sections = render._article_visual_briefs(markdown)
+    assert sections == [
+        ("参照点如何改变收益与损失的判断", "顾客把同样金额的损失看得比收益更重。")
+    ]
+
+
+def test_long_section_heading_uses_short_topic_label_without_truncating_words():
+    topic = {
+        **TOPIC,
+        "title": "损失厌恶：人类决策中收益与损失的不对称评价",
+    }
+    prompt = render._inline_prompts(
+        topic,
+        [("参照点如何改变收益与损失的判断", "顾客在退货柜台比较损失与收益。")],
+    )[0]
+    assert "章节：参照点如何改变收益与损失的判断" in prompt
+    assert "可见文字：仅可使用原文短标签“损失厌恶”" in prompt
+    assert "“参照点如何改变收益与损失”" not in prompt
 
 
 def test_prompts_keep_topic_semantics_as_visual_context():
@@ -305,9 +344,12 @@ def test_prompts_keep_topic_semantics_as_visual_context():
         assert point in prompt
 
 
-def test_prompts_reject_text_bearing_layout_shapes():
+def test_prompts_allow_exact_source_labels_but_reject_invented_text():
     for prompt in _all_prompts(TOPIC):
-        assert "不用杂志页面、信息图版面、卡片、文本框、纸张、书页、表格、坐标轴、仪表盘或屏幕" in prompt
+        assert "可见文字" in prompt
+        assert "文字必须逐字准确" in prompt
+        assert "不得添加其他文字、数字、Logo 或水印" in prompt
+        assert "zero typography" not in prompt
 
 
 def test_behavioral_science_prompts_reject_generic_lab_decorations():

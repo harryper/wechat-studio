@@ -66,32 +66,25 @@ WORKDIR_ROOT = Path(__file__).resolve().parent / "_data" / "workdirs"
 
 
 # ── 提示词构造 ────────────────────────────────────────────────────────
-# 图片服务会把完整标题、杂志版面和图表类描述理解成排版任务，进而生成
-# 伪文字。运行时不发送完整标题，并把每张图约束为低密度的单一场景；
-# 科普感由对象之间的空间关系表达，而不是依赖文字、卡片或复杂图表。
+# GPT Image 2 can follow a grounded scene brief and render short labels reliably
+# enough for editorial illustrations.  Put article evidence before aesthetics,
+# keep one visual system across all five images, and only permit exact source
+# labels so the model does not invent facts or poster copy.
 _KNOWLEDGE_STYLE = (
-    "简洁单幅科普概念插画，横版16:9，2.5D扁平半写实；"
-    "统一使用低饱和海军蓝、赭石与暖象牙色，统一轻俯视视角、"
-    "中等粗细轮廓与柔和阴影。"
+    "当代科普编辑插画，横版16:9，2.5D扁平半写实。"
+    "全篇统一视觉系统：低饱和海军蓝、赭石与暖象牙色，"
+    "自然人物比例，中等粗细轮廓，克制材质细节与柔和环境光。"
 )
 
 _COMPOSITION_CONSTRAINT = (
-    "画面只由一个连续场景构成，最多两个人、最多四个主要物体、最多一条纯色关系路径；"
-    "至少三分之一画面是干净背景，主体之间留有明显间距，细节克制。"
-    "不用杂志页面、信息图版面、卡片、文本框、纸张、书页、表格、坐标轴、仪表盘或屏幕。"
-    "所有表面保持纯净空白，不生成任何可读或类似文字的符号。"
-    "single self-contained illustration, zero typography or text-like marks"
+    "画面只由一个连续的具体场景构成，最多两个人、最多四个关键物件。"
+    "主体、关键动作和对比关系一眼可辨；背景简洁，同时保留正文提到的真实环境锚点。"
 )
 
 _COVER_COMPOSITION_CONSTRAINT = (
-    "画面只由一个连续场景构成，最多两个人、最多四个主要物体、最多一条纯色关系路径；"
-    "主体与关键物件横向延展，覆盖约百分之八十的画面宽度，构图重心居中，左右视觉重量平衡，"
-    "四周仅保留约百分之八的呼吸边距。"
-    "不预留标题区域，不做左右分屏背景，不得出现超过画面四分之一的连续纯色空白。"
-    "不用杂志页面、信息图版面、卡片、文本框、纸张、书页、表格、坐标轴、仪表盘或屏幕。"
-    "所有表面保持纯净空白，不生成任何可读或类似文字的符号。"
-    "single self-contained illustration, balanced full-frame composition, "
-    "zero typography or text-like marks"
+    "画面只由一个连续的具体场景构成，最多两个人、最多四个关键物件。"
+    "使用清晰的封面视觉层级，主体、关键动作和对比关系一眼可辨，"
+    "构图完整饱满，短标签服从画面而不是占据画面。"
 )
 
 _CONTENT_GROUNDING = (
@@ -105,6 +98,29 @@ _QUOTE_CHARS = "「」『』《》【】〈〉“”‘’\"'"
 def _pictorial_subject(text: str) -> str:
     """Strip typographic quoting so the text reads as a scene, not a string."""
     return "".join(ch for ch in (text or "") if ch not in _QUOTE_CHARS).strip()
+
+
+def _section_heading(text: str) -> str:
+    """Remove structural numbering while preserving the full article heading."""
+    value = _pictorial_subject(text)
+    value = re.sub(r"^\s*(?:§\s*)?\d+(?:[.、]\d+)*[.、:：\-—\s]*", "", value)
+    return value.strip()
+
+
+def _short_label(text: str) -> str:
+    """Return an exact, compact source phrase suitable for visible artwork text."""
+    value = _section_heading(text)
+    value = re.split(r"[：:，,。！？!?；;—]", value, maxsplit=1)[0].strip()
+    return value if len(value) <= 12 else ""
+
+
+def _text_constraint(*sources: str) -> str:
+    labels = (_short_label(source) for source in sources)
+    label = next((label for label in labels if label), "核心概念")
+    return (
+        f"可见文字：仅可使用原文短标签“{label}”，文字必须逐字准确；"
+        "若无法准确呈现则省略。不得添加其他文字、数字、Logo 或水印。"
+    )
 
 
 def _key_points(topic: Dict[str, Any]) -> List[str]:
@@ -136,34 +152,48 @@ def _cover_prompt(topic: Dict[str, Any], brief: Optional[str] = None) -> str:
     category = _pictorial_subject(topic.get("category") or "")
     source = _pictorial_subject(brief or _inline_point(topic, 0))
     return (
-        f"{_KNOWLEDGE_STYLE}单幅概念封面，主题领域是{category}；"
-        f"内容依据：{source}。从中选择一个具体瞬间设计核心视觉隐喻，"
-        f"用一个中心主体和一组有事实依据的对照物呈现判断。"
-        f"{_CONTENT_GROUNDING}{_domain_constraint(topic)}{_COVER_COMPOSITION_CONSTRAINT}"
+        f"{_KNOWLEDGE_STYLE}\n"
+        f"画面类型：单幅概念封面。主题领域：{category}。\n"
+        f"核心判断与文章依据：{source}\n"
+        "画面任务：选择一个正文中的具体瞬间，用人物正在进行的动作、真实环境和可见反差"
+        "呈现核心判断；不要把多个观点拼成信息图。"
+        f"{_CONTENT_GROUNDING}\n"
+        f"{_text_constraint(topic.get('title') or '', source)}\n"
+        f"{_domain_constraint(topic)}{_COVER_COMPOSITION_CONSTRAINT}"
     )
 
 
 def _inline_prompts(
-    topic: Dict[str, Any], briefs: Optional[List[str]] = None
+    topic: Dict[str, Any], briefs: Optional[List[Any]] = None
 ) -> List[str]:
-    """Build four complementary prompts for the article's major sections."""
-    treatments = [
-        "选择一个具体的起源瞬间，呈现人物正在做的动作和真实环境",
-        "选择一个具体的发展变化瞬间，用人物在职业、关系或地点之间的实际选择表现变化",
-        "选择一个具体的影响或应用瞬间，优先呈现人与人之间正在发生的互动",
-        "选择一个反直觉判断，以同一生活场景中的可见差异表达，不用抽象几何块代替事实",
-    ]
-    sources = [
-        _pictorial_subject(briefs[i])
-        if briefs and i < len(briefs) and briefs[i]
-        else _inline_point(topic, i)
-        for i in range(4)
-    ]
-    return [
-        f"{_KNOWLEDGE_STYLE}内容依据：{sources[i]}。{treatment}。"
-        f"{_CONTENT_GROUNDING}{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
-        for i, treatment in enumerate(treatments)
-    ]
+    """Build four prompts from the article's actual section headings and prose."""
+    sections: List[Tuple[str, str]] = []
+    for index in range(4):
+        entry = briefs[index] if briefs and index < len(briefs) else None
+        if isinstance(entry, (tuple, list)) and len(entry) >= 2:
+            heading = _pictorial_subject(str(entry[0]))
+            source = _pictorial_subject(str(entry[1]))
+        elif entry:
+            heading = ""
+            source = _pictorial_subject(str(entry))
+        else:
+            heading = ""
+            source = _inline_point(topic, index)
+        sections.append((heading, source))
+
+    prompts = []
+    for heading, source in sections:
+        chapter = f"章节：{heading}。\n" if heading else ""
+        prompts.append(
+            f"{_KNOWLEDGE_STYLE}\n"
+            f"{chapter}核心判断与文章依据：{source}\n"
+            "画面任务：先识别这段正文唯一最重要的判断，再选择能直接证明它的一个具体瞬间；"
+            "明确画出人物或主体正在进行的动作、真实地点，以及支持判断的可见反差。"
+            f"{_CONTENT_GROUNDING}\n"
+            f"{_text_constraint(heading, source, topic.get('title') or '')}\n"
+            f"{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
+        )
+    return prompts
 
 
 def _visual_brief(markdown_fragment: str, limit: int = 420) -> str:
@@ -180,11 +210,11 @@ def _visual_brief(markdown_fragment: str, limit: int = 420) -> str:
     return clipped[: boundary + 1] if boundary >= limit // 2 else clipped.rstrip()
 
 
-def _article_visual_briefs(markdown: str) -> Tuple[str, List[str]]:
-    """Extract the abstract and first four H2 sections as visual context."""
+def _article_visual_briefs(markdown: str) -> Tuple[str, List[Tuple[str, str]]]:
+    """Extract the abstract and first four H2 headings with their visual context."""
     headings = list(re.finditer(r"^##\s+(.+?)\s*$", markdown, re.MULTILINE))
     summary = ""
-    sections: List[str] = []
+    sections: List[Tuple[str, str]] = []
     for index, match in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
         brief = _visual_brief(markdown[match.end():end])
@@ -193,7 +223,7 @@ def _article_visual_briefs(markdown: str) -> Tuple[str, List[str]]:
         if "摘要" in match.group(1):
             summary = brief
         elif len(sections) < 4:
-            sections.append(brief)
+            sections.append((_section_heading(match.group(1)), brief))
     return summary, sections
 
 
