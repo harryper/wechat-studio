@@ -109,26 +109,36 @@ def check_config():
 
     # Image providers
     entries = cfg.get("image", {}).get("providers") or []
-    available = [e.get("id") for e in entries if e.get("id")]
-    if not available:
+    ids = [e.get("id") for e in entries]
+    available = [i for i in ids if i]
+    if not entries or len(available) != len(entries):
         checks.append(make_check(
             "config", "image_providers", "fail",
             "image.providers 为空或条目缺少 id",
             impact="skip_image_gen",
         ))
     else:
-        order = env_config.provider_order() or available
-        unknown = [i for i in order if i not in available]
-        if unknown:
+        # duplicate-id detection
+        dupes = sorted({i for i in available if available.count(i) > 1})
+        if dupes:
             checks.append(make_check(
                 "config", "image_providers", "fail",
-                f"IMAGE_PROVIDER_ORDER 含未知 id：{', '.join(unknown)}；"
-                f"可用：{', '.join(available)}",
+                f"image.providers 存在重复 id：{', '.join(dupes)}",
                 impact="skip_image_gen",
             ))
         else:
-            checks.append(make_check(
-                "config", "image_providers", "pass", " → ".join(order)))
+            order = env_config.provider_order() or available
+            unknown = [i for i in order if i not in available]
+            if unknown:
+                checks.append(make_check(
+                    "config", "image_providers", "fail",
+                    f"IMAGE_PROVIDER_ORDER 含未知 id：{', '.join(unknown)}；"
+                    f"可用：{', '.join(available)}",
+                    impact="skip_image_gen",
+                ))
+            else:
+                checks.append(make_check(
+                    "config", "image_providers", "pass", " → ".join(order)))
 
     return checks
 

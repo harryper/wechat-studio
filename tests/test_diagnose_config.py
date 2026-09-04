@@ -42,3 +42,15 @@ def test_unknown_provider_id_fails(tmp_path, monkeypatch):
 
     assert result["image_providers"]["status"] == "fail"
     assert "typo" in result["image_providers"]["detail"]
+
+
+def test_falls_back_to_config_order_when_env_unset(monkeypatch, tmp_path):
+    _write_config(tmp_path, "cliproxy", "seedream")
+    monkeypatch.setattr(diagnose, "SKILL_ROOT", tmp_path)
+    monkeypatch.setattr(env_config, "_loaded", True)
+    monkeypatch.delenv("IMAGE_PROVIDER_ORDER", raising=False)
+
+    result = {c["name"]: c for c in diagnose.check_config()}
+
+    assert result["image_providers"]["status"] == "pass"
+    assert result["image_providers"]["detail"] == "cliproxy → seedream"
