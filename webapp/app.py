@@ -20,6 +20,7 @@ cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
 """
 
+import copy
 import hashlib
 import hmac
 import logging
@@ -34,7 +35,7 @@ from typing import Any, Dict, List, Optional
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from . import history, jobs, pipeline, publications, topics
+from . import history, jobs, model_settings, pipeline, publications, topics
 from .d1_client import D1Error, client as d1
 from .render import (
     _write_preview_html,
@@ -64,6 +65,11 @@ JOB_EXECUTOR = ThreadPoolExecutor(
     max_workers=int(os.environ.get("WS_JOB_WORKERS", "1")),
     thread_name_prefix="wechat-studio-job",
 )
+
+
+def _submit_model_job(job: dict, settings_snapshot: dict) -> None:
+    """Queue a job with an isolated request-time model settings snapshot."""
+    JOB_EXECUTOR.submit(pipeline.run_job, job["id"], copy.deepcopy(settings_snapshot))
 
 # ── Flask 应用 ───────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -237,6 +243,7 @@ def api_create_job():
 
     if client and not re.fullmatch(r"[A-Za-z0-9_-]+", client):
         return jsonify({"ok": False, "error": "客户名格式不合法", "phase": "input"}), 400
+    settings_snapshot = model_settings.snapshot_settings()
     entry_id = history.add({
         "topic_id": topic["id"],
         "title": topic["title"],
@@ -251,11 +258,12 @@ def api_create_job():
             "theme": theme,
             "client": client,
             "history_id": entry_id,
+            "models": model_settings.audit_settings(settings_snapshot),
         })
     except Exception:
         history.update(entry_id, {"status": "failed"})
         raise
-    JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
+    _submit_model_job(job, settings_snapshot)
     return jsonify({"ok": True, "job_id": job["id"], "history_id": entry_id, "status": "queued"}), 202
 
 
@@ -370,6 +378,8 @@ def api_history_regenerate(entry_id: int):
         if role not in {"cover", "inline-1", "inline-2", "inline-3", "inline-4"}:
             return jsonify({"ok": False, "error": "图片 role 不合法"}), 400
         payload["role"] = role
+    settings_snapshot = model_settings.snapshot_settings()
+    payload["models"] = model_settings.audit_settings(settings_snapshot)
     previous_status = entry.get("status") or "draft"
     history.update(entry_id, {"status": "generating"})
     try:
@@ -377,7 +387,7 @@ def api_history_regenerate(entry_id: int):
     except Exception:
         history.update(entry_id, {"status": "failed", "details": {"previous_status": previous_status}})
         raise
-    JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
+    _submit_model_job(job, settings_snapshot)
     return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
 
 
