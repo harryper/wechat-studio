@@ -423,12 +423,15 @@ def generate_images_in_workdir(
     Image generation is intentionally strict. The complete success status is
     written only after all five images were generated successfully.
     """
+    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
+    if len(image_rels) != len(roles):
+        raise ValueError("image_rels must contain exactly 5 paths")
+
     img_dir = workdir / "images"
     img_dir.mkdir(exist_ok=True)
     state_path = workdir / "image-status.json"
     state_path.unlink(missing_ok=True)
 
-    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
     prompts = _image_prompts_for_workdir(workdir, topic)
 
     for rel, role in zip(image_rels, roles):

@@ -202,6 +202,32 @@ def test_web_image_failure_raises_without_placeholder(tmp_path, monkeypatch):
     assert list((workdir / "images").iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    "image_rels",
+    [
+        ["images/cover.jpg", "images/inline-1.jpg", "images/inline-2.jpg", "images/inline-3.jpg"],
+        [*render.default_image_rels(), "images/extra.jpg"],
+    ],
+)
+def test_generate_images_rejects_non_five_image_paths_before_provider_or_status(
+    tmp_path, monkeypatch, image_rels
+):
+    """A non-five image set cannot be reported as a complete successful job."""
+    workdir = make_article_workdir(tmp_path)
+    calls = []
+
+    def fake_generate(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
+
+    with pytest.raises(ValueError, match="exactly 5"):
+        render.generate_images_in_workdir(workdir, TOPIC, image_rels, IMAGE_SETTINGS)
+
+    assert calls == []
+    assert not (workdir / "image-status.json").exists()
+
+
 def test_generate_images_accepts_every_successful_provider_result(tmp_path, monkeypatch):
     workdir = tmp_path / "work"
     (workdir / "images").mkdir(parents=True)
