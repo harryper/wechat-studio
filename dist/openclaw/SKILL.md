@@ -9,6 +9,29 @@ description: >-
 
 按“选题 → 框架写作 → 配图 → 主题预览 → 用户确认 → 微信草稿”执行。默认先交付可检查的预览；只有用户明确要求发布，或在看过预览后确认，才推送微信草稿箱。
 
+## 安装与环境准备
+
+技能未安装或依赖缺失时按以下步骤准备；已装好则跳过。
+
+```bash
+mkdir -p ~/.openclaw/workspace/skills
+git clone --depth 1 https://github.com/harryper/wechat-studio.git \
+  ~/.openclaw/workspace/skills/wechat-studio
+# xiaohu 系主题依赖的兄弟目录，其余主题不需要
+git clone --depth 1 https://github.com/xiaohuailabs/xiaohu-wechat-format.git \
+  ~/.openclaw/workspace/skills/xiaohu-wechat-format
+cd ~/.openclaw/workspace/skills/wechat-studio
+pip install -r requirements.txt
+```
+
+仓库自带使用 `${VAR}` 占位符的 `config.yaml`，不需要复制配置文件；密钥写入不入库的 `.env`：
+
+- 写作：`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、可选 `ANTHROPIC_MODEL`（默认 `MiniMax-M3`）。
+- 配图：`CLIPROXY_IMAGE_API_KEY`、`ARK_API_KEY`、`MINIMAX_API_KEY` 至少一个。
+- 发布：`WECHAT_APPID`、`WECHAT_SECRET`。
+
+开始前用 `python3 {baseDir}/scripts/diagnose.py --json` 确认依赖和凭据；缺项时按输出的 `recommendations` 补齐，不要用占位值继续。Web 工作台是可选入口（`docker compose up -d --build`，`http://localhost:9997`），Agent 直接流程不依赖它。
+
 ## 主流程
 
 ### 1. 确定选题
@@ -64,7 +87,7 @@ python3 {baseDir}/scripts/write_article.py --topic {topic_id} --out {markdown_pa
 
 质量控制由人工完成：用户在 Web 工作台预览时检查每张配图，发现伪文字或构图不满意时使用"重生指定图片"重新生成对应的单张图。
 
-供应商条目支持 `enabled` 开关；仓库默认 `enabled: "${OPENAI_IMAGE_ENABLED:-false}"` 关闭 OpenAI 图片供应商，不显式 `export OPENAI_IMAGE_ENABLED=true` 就不会产生 OpenAI 费用。
+`config.yaml` 中的供应商顺序为：本机 cliproxyapi（`CLIPROXY_IMAGE_API_KEY`，默认 `127.0.0.1:8317`）→ 火山方舟 Seedream（`ARK_API_KEY`）→ MiniMax（`MINIMAX_API_KEY`）→ 官方 OpenAI。供应商条目支持 `enabled` 开关；只有最后一条官方 OpenAI 回退默认关闭（`enabled: "${OPENAI_IMAGE_ENABLED:-false}"`），不显式 `export OPENAI_IMAGE_ENABLED=true` 就不会产生 OpenAI 费用。本机 cliproxyapi 通道不受该开关影响。
 
 ### 5. 预览
 
