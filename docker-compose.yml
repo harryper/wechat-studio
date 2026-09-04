@@ -22,40 +22,11 @@ services:
       - ${XIAOHU_FORMAT_DIR:-../xiaohu-wechat-format}:/xiaohu-wechat-format:ro
       # Host-side logs are picked up by logrotate on the host.
       - /var/log/wechat-studio:/app/logs
+    env_file:
+      - .env
     environment:
-      - PYTHONUNBUFFERED=1
-      - PATH=/usr/bin:/bin:/usr/local/bin
-      - TZ=Asia/Shanghai
-      - APP_PASSWORD=${APP_PASSWORD:-asdf123456}
-      - APP_COOKIE_SECRET=${APP_COOKIE_SECRET:-wechat-studio-cookie-secret}
-      # WeChat credentials (config.yaml references these via ${VAR} syntax).
-      - WECHAT_APPID=${WECHAT_APPID:-}
-      - WECHAT_SECRET=${WECHAT_SECRET:-}
-      # Image generation providers (image_gen.py uses these).
-      - CLIPROXY_IMAGE_API_KEY=${CLIPROXY_IMAGE_API_KEY:-}
+      # 容器访问宿主机上的 cliproxyapi，取值必须与 .env 不同
       - CLIPROXY_IMAGE_BASE_URL=${CLIPROXY_IMAGE_BASE_URL:-http://host.docker.internal:8317/v1}
-      - ARK_API_KEY=${ARK_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
-      # LLM endpoint for the knowledge-track article writer
-      # (Anthropic-compatible Messages API).
-      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
-      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
-      - GUNICORN_WORKERS=2
-      - GUNICORN_TIMEOUT=300
-      - GUNICORN_GRACEFUL_TIMEOUT=10
-      - GUNICORN_KEEPALIVE=5
-      - GUNICORN_MAX_REQUESTS=500
-      - GUNICORN_MAX_REQUESTS_JITTER=100
-      - GUNICORN_LOG_LEVEL=info
-      # One background generation job per web worker; two Gunicorn workers
-      # still allow two jobs concurrently without exhausting image memory.
-      - WS_JOB_WORKERS=1
-      - WS_JOB_MAX=${WS_JOB_MAX:-100}
-      - WS_HISTORY_MAX=${WS_HISTORY_MAX:-10}
-      - D1_API_URL=${D1_API_URL:-https://wechat-studio-data.harryperlau.workers.dev}
-      - D1_API_TOKEN_FILE=/run/secrets/d1_api_token
     secrets:
       - d1_api_token
     deploy:
