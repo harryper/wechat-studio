@@ -43,7 +43,9 @@ ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
 ANTHROPIC_AUTH_TOKEN=your-minimax-key
 ANTHROPIC_MODEL=MiniMax-M3
 
-# 图片默认按 Seedream → MiniMax 的顺序生成
+# 图片默认按本机 gpt-image-2 → Seedream → MiniMax 的顺序生成
+CLIPROXY_IMAGE_API_KEY=your-local-proxy-key
+# 直接运行 CLI 时默认连接 127.0.0.1:8317；Compose 会自动改用宿主机地址
 ARK_API_KEY=your-volcano-ark-key
 
 # 创建微信草稿时必需

@@ -18,6 +18,10 @@ wechat:
 # AI 图片生成（多 provider 自动 fallback）
 image:
   providers:
+    - provider: "openai"
+      api_key: "${CLIPROXY_IMAGE_API_KEY}"
+      model: "gpt-image-2"
+      base_url: "${CLIPROXY_IMAGE_BASE_URL:-http://127.0.0.1:8317/v1}"
     - provider: "seedream"
       api_key: "${ARK_API_KEY}"
       model: "doubao-seedream-4-0-250828"
@@ -27,7 +31,7 @@ image:
       model: "image-01"
       base_url: "https://api.minimaxi.com/v1"
     - provider: "openai"
-      # 默认关闭，避免产生 OpenAI 费用；需要时显式 export OPENAI_IMAGE_ENABLED=true
+      # 官方 OpenAI 回退默认关闭；本机 cliproxyapi 配置不受此开关影响。
       enabled: "${OPENAI_IMAGE_ENABLED:-false}"
       api_key: "${OPENAI_API_KEY}"
       model: "gpt-image-2"

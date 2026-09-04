@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "9997:9997"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Source code bind-mounted for live edits during dev.
       - ./webapp:/app/webapp
@@ -30,6 +32,8 @@ services:
       - WECHAT_APPID=${WECHAT_APPID:-}
       - WECHAT_SECRET=${WECHAT_SECRET:-}
       # Image generation providers (image_gen.py uses these).
+      - CLIPROXY_IMAGE_API_KEY=${CLIPROXY_IMAGE_API_KEY:-}
+      - CLIPROXY_IMAGE_BASE_URL=${CLIPROXY_IMAGE_BASE_URL:-http://host.docker.internal:8317/v1}
       - ARK_API_KEY=${ARK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}

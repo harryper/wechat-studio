@@ -120,6 +120,33 @@ def test_seedream_provider_calls_ark_images_api_and_decodes_base64(monkeypatch):
     }
 
 
+def test_gpt_image_provider_decodes_base64_response(monkeypatch):
+    expected = b"gpt-image-output"
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"data": [{"b64_json": base64.b64encode(expected).decode()}]}
+
+    monkeypatch.setattr(image_gen.requests, "post", lambda *args, **kwargs: Response())
+    provider = image_gen.OpenAIProvider(
+        api_key="proxy-key",
+        model="gpt-image-2",
+        base_url="http://127.0.0.1:8317/v1",
+    )
+
+    assert provider.generate("一张科普插画", "1536x1024") == expected
+
+
+@pytest.mark.parametrize("preset", ["cover", "article"])
+def test_gpt_image_provider_uses_supported_landscape_size(preset):
+    provider = image_gen.OpenAIProvider(api_key="proxy-key", model="gpt-image-2")
+
+    assert provider.resolve_size(preset) == "1536x1024"
+
+
 # ── simple provider fallback loop ─────────────────────────────────────
 class FakeProvider(image_gen.ImageProvider):
     """Provider returning a distinct payload per call, recording prompts."""

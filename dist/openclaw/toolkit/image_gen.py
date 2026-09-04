@@ -210,7 +210,7 @@ class ImageProvider(abc.ABC):
 # --- Providers ---
 
 class OpenAIProvider(ImageProvider):
-    """OpenAI DALL-E 3 provider."""
+    """OpenAI-compatible image generation provider."""
 
     provider_key = "openai"
 
@@ -218,7 +218,12 @@ class OpenAIProvider(ImageProvider):
                  base_url: str = "https://api.openai.com/v1", **_kw):
         self._api_key = api_key
         self._model = model
-        self._base_url = base_url
+        self._base_url = base_url.rstrip("/")
+
+    def resolve_size(self, preset: str) -> str:
+        if self._model.startswith("gpt-image-") and preset in {"cover", "article"}:
+            return "1536x1024"
+        return super().resolve_size(preset)
 
     def generate(self, prompt: str, size: str) -> bytes:
         # gpt-image-2 / dall-e-3 不支持 response_format 参数，去掉避免 400
@@ -236,7 +241,11 @@ class OpenAIProvider(ImageProvider):
         if resp.status_code != 200:
             raise ValueError(f"OpenAI error ({resp.status_code}): "
                              f"{data.get('error', {}).get('message', str(data))}")
-        url = data.get("data", [{}])[0].get("url")
+        image = data.get("data", [{}])[0]
+        encoded = image.get("b64_json")
+        if encoded:
+            return base64.b64decode(encoded)
+        url = image.get("url")
         if not url:
             raise ValueError(f"No image URL: {data}")
         return _download_image(url)
