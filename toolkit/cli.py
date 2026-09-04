@@ -9,6 +9,8 @@ Usage:
 """
 
 import argparse
+import os
+import re
 import sys
 import webbrowser
 from pathlib import Path
@@ -22,6 +24,9 @@ from theme import load_theme, list_themes
 from wechat_api import get_access_token, upload_image, upload_thumb
 from publisher import create_draft, create_image_post
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from toolkit import env_config
+
 # Config file search order
 CONFIG_PATHS = [
     Path.cwd() / "config.yaml",
@@ -30,22 +35,6 @@ CONFIG_PATHS = [
     Path.home() / ".config" / "wechat-studio" / "config.yaml",
 ]
 
-
-import os, re
-
-def _load_env_files() -> None:
-    """Load local uncommitted env files so cron/subagents work without sourcing ~/.bashrc."""
-    for env_path in [Path(__file__).parent.parent / ".env", Path.cwd() / ".env"]:
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            os.environ.setdefault(key, value)
 
 def _expand_env(value):
     """Recursively expand ${VAR} and $VAR patterns in config values."""
@@ -64,7 +53,7 @@ def _expand_env(value):
 
 def load_config() -> dict:
     """Load config from first found config.yaml with environment variable expansion."""
-    _load_env_files()
+    env_config.load_env()
     for p in CONFIG_PATHS:
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:
