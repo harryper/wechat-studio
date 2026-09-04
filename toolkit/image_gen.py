@@ -729,7 +729,7 @@ def _build_provider_chain(config: dict) -> list[ImageProvider]:
 
 
 def _build_provider(config: dict) -> ImageProvider:
-    """Build an ImageProvider from config.yaml (backward-compatible entry point)."""
+    """Return the first ImageProvider from the configured chain."""
     return _build_provider_chain(config)[0]
 
 
@@ -745,7 +745,6 @@ def generate_image(
     Generate an image using configured providers with auto-fallback.
 
     Tries each provider in order. If one fails, falls back to the next.
-    Supports both single-provider (legacy) and multi-provider config.
 
     Args:
         prompt: Image generation prompt (Chinese or English).
