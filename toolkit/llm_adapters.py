@@ -16,12 +16,12 @@ _RESPONSE_DETAIL_LIMIT = 512
 
 
 def _response_detail(response: requests.Response, api_key: str) -> str:
-    content = response.content[:_RESPONSE_DETAIL_LIMIT]
+    content = response.content
     if isinstance(content, bytes):
         detail = content.decode("utf-8", errors="replace")
     else:
         detail = str(content)
-    return redact_sensitive(detail, secrets=(api_key,))
+    return redact_sensitive(detail, secrets=(api_key,))[:_RESPONSE_DETAIL_LIMIT]
 
 
 def extract_openai_text(payload: object, provider_id: str) -> str:
@@ -36,7 +36,9 @@ def extract_openai_text(payload: object, provider_id: str) -> str:
 
 
 def _extract_anthropic_text(response: object, provider_id: str) -> str:
-    content = getattr(response, "content", ())
+    content = getattr(response, "content", None)
+    if not isinstance(content, (list, tuple)):
+        raise RuntimeError(f"{provider_id} 返回格式错误")
     text = "".join(
         block_text
         for block in content
@@ -74,7 +76,11 @@ def _generate_openai_compatible(
         raise RuntimeError(
             f"{settings['provider_id']} 请求失败 (HTTP {response.status_code}): {detail}"
         )
-    return extract_openai_text(response.json(), settings["provider_id"])
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"{settings['provider_id']} 返回格式错误") from exc
+    return extract_openai_text(payload, settings["provider_id"])
 
 
 def _generate_anthropic_messages(

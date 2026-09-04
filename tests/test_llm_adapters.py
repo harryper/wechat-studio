@@ -113,6 +113,28 @@ def test_empty_or_malformed_responses_fail_with_provider_context():
         llm_adapters.extract_openai_text({"choices": []}, "custom-openai")
 
 
+def test_malformed_openai_json_response_fails_with_provider_context(monkeypatch):
+    response = FakeResponse(200, {})
+
+    def malformed_json():
+        raise ValueError("invalid JSON")
+
+    response.json = malformed_json
+    monkeypatch.setattr(llm_adapters.requests, "post", lambda *args, **kwargs: response)
+
+    with pytest.raises(RuntimeError, match="custom-openai.*返回格式错误"):
+        llm_adapters.generate_text("x", OPENAI_SETTINGS)
+
+
+def test_malformed_anthropic_content_fails_with_provider_context(monkeypatch):
+    response = type("MalformedAnthropicResponse", (), {"content": None})()
+    factory = CapturingAnthropicFactory(response)
+    monkeypatch.setattr(llm_adapters.anthropic, "Anthropic", factory)
+
+    with pytest.raises(RuntimeError, match="custom-anthropic.*返回格式错误"):
+        llm_adapters.generate_text("x", ANTHROPIC_SETTINGS)
+
+
 def test_adapter_errors_do_not_expose_api_key_or_url_credentials(monkeypatch):
     monkeypatch.setattr(llm_adapters.requests, "post", raising_post_with_secret_url)
 
@@ -136,6 +158,21 @@ def test_openai_non_success_response_includes_redacted_limited_detail(monkeypatc
     assert "401" in message
     assert "write-secret" not in message
     assert "user:pass" not in message
+    assert len(message) < 700
+
+
+def test_openai_error_redacts_secret_that_crosses_detail_limit(monkeypatch):
+    settings = {**OPENAI_SETTINGS, "api_key": "SecretValue"}
+    response = FakeResponse(401, {})
+    response.content = (b"x" * 510) + b"SecretValue" + (b"y" * 100)
+    monkeypatch.setattr(llm_adapters.requests, "post", lambda *args, **kwargs: response)
+
+    with pytest.raises(RuntimeError) as exc:
+        llm_adapters.generate_text("x", settings)
+
+    message = str(exc.value)
+    assert "SecretValue" not in message
+    assert "Se" not in message
     assert len(message) < 700
 
 
