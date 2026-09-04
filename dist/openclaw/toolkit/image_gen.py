@@ -30,6 +30,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import sys
@@ -42,6 +43,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from toolkit import env_config
+
+logger = logging.getLogger(__name__)
 
 # --- Config ---
 
@@ -726,7 +729,7 @@ def _build_provider_chain(config: dict) -> list[ImageProvider]:
 
 
 def _build_provider(config: dict) -> ImageProvider:
-    """Build an ImageProvider from config.yaml (backward-compatible entry point)."""
+    """Return the first ImageProvider from the configured chain."""
     return _build_provider_chain(config)[0]
 
 
@@ -742,7 +745,6 @@ def generate_image(
     Generate an image using configured providers with auto-fallback.
 
     Tries each provider in order. If one fails, falls back to the next.
-    Supports both single-provider (legacy) and multi-provider config.
 
     Args:
         prompt: Image generation prompt (Chinese or English).
@@ -759,19 +761,38 @@ def generate_image(
     chain = _build_provider_chain(config)
     last_error = None
 
-    for provider in chain:
+    for idx, provider in enumerate(chain):
         resolved_size = provider.resolve_size(size)
+        logger.info(
+            "image provider attempt: provider=%s prompt=%r size=%s",
+            provider.provider_key,
+            prompt,
+            resolved_size,
+        )
+        start = time.monotonic()
         try:
             raw_bytes = provider.generate(prompt, resolved_size)
         except Exception as e:
             last_error = e
-            print(
-                f"Provider '{provider.provider_key}' failed: {e}. "
-                f"Trying next...",
-                file=sys.stderr,
-            )
+            is_final = idx == len(chain) - 1
+            if is_final:
+                logger.error(
+                    "image provider failed (final): provider=%s exc=%s msg=%s",
+                    provider.provider_key,
+                    type(e).__name__,
+                    e,
+                    exc_info=True,
+                )
+            else:
+                logger.warning(
+                    "image provider failed, trying next: provider=%s exc=%s msg=%s",
+                    provider.provider_key,
+                    type(e).__name__,
+                    e,
+                )
             continue
 
+        elapsed = time.monotonic() - start
         if "x" in size and resolved_size != size:
             from io import BytesIO
             from PIL import Image
@@ -791,6 +812,12 @@ def generate_image(
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(raw_bytes)
+        logger.info(
+            "image provider served: provider=%s bytes=%d duration=%.2fs",
+            provider.provider_key,
+            len(raw_bytes),
+            elapsed,
+        )
         return str(output)
 
     raise ValueError(
