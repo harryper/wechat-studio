@@ -37,12 +37,14 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Union
 
 import requests
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from toolkit import env_config
+from toolkit.model_security import redact_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -734,6 +736,39 @@ def _build_provider(config: dict) -> ImageProvider:
 
 
 # --- Public API ---
+
+def generate_image_with_provider(
+    prompt: str,
+    output_path: Union[str, Path],
+    provider_settings: dict,
+    size: str = "cover",
+) -> str:
+    """Generate once with the explicitly selected provider, without fallback."""
+    entry = {
+        "id": provider_settings["provider_id"],
+        "provider": provider_settings["adapter"],
+        "model": provider_settings["model"],
+        "base_url": provider_settings["base_url"],
+        "api_key": provider_settings["api_key"],
+    }
+    try:
+        provider = _build_provider_from_entry(entry)
+        raw_bytes = provider.generate(prompt, provider.resolve_size(size))
+    except Exception as exc:
+        detail = redact_sensitive(exc, secrets=(provider_settings["api_key"],))
+        raise RuntimeError(
+            "Image provider "
+            f"{provider_settings['provider_id']!r} model "
+            f"{provider_settings['model']!r} failed: {detail}"
+        ) from None
+
+    if len(raw_bytes) > MAX_FILE_SIZE:
+        raw_bytes = _compress_image(raw_bytes, MAX_FILE_SIZE)
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(raw_bytes)
+    return str(output)
 
 def generate_image(
     prompt: str,

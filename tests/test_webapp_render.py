@@ -26,6 +26,10 @@ WRITING_SETTINGS = {
     "base_url": "https://llm.example/v1",
     "api_key": "write-secret",
 }
+IMAGE_SETTINGS = {
+    "provider_id": "cliproxy", "adapter": "openai", "model": "gpt-image-2",
+    "base_url": "http://127.0.0.1:8317/v1", "api_key": "image-secret",
+}
 ARTICLE = "# 新标题\n\n## 摘要\n\n正文"
 
 
@@ -149,25 +153,53 @@ def test_insert_images_adds_cover_and_four_inline_images():
         assert result.count(rel) == 1
 
 
-def test_generate_images_reports_mixed_mode(tmp_path, monkeypatch):
+def make_article_workdir(tmp_path: Path) -> Path:
     workdir = tmp_path / "work"
     (workdir / "images").mkdir(parents=True)
-    calls = []
+    (workdir / "article.md").write_text(
+        """# 标题
 
-    def fake_generate(prompt, output, size, **kwargs):
-        calls.append(Path(output).name)
-        if output.endswith("inline-2.jpg"):
-            raise RuntimeError("quota")
-        Path(output).write_bytes(b"real")
+## 摘要
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
-    topic = {"id": "kb-001", "title": "测试", "category": "psychology", "key_points": ["a", "b"]}
-    mode = render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
-    assert mode == "mixed"
-    assert calls == ["cover.jpg", "inline-1.jpg", "inline-2.jpg", "inline-3.jpg", "inline-4.jpg"]
-    states = __import__("json").loads((workdir / "image-status.json").read_text())
-    assert states["inline-2"] == "placeholder"
-    assert all((workdir / rel).is_file() for rel in render.default_image_rels())
+摘要正文。
+
+## § 1 起源
+
+第一节正文。
+
+## § 2 机制
+
+第二节正文。
+
+## § 3 证据
+
+第三节正文。
+
+## § 4 应用
+
+第四节正文。
+""",
+        encoding="utf-8",
+    )
+    return workdir
+
+
+def raising_image_call(*args, **kwargs):
+    raise RuntimeError("quota")
+
+
+def test_web_image_failure_raises_without_placeholder(tmp_path, monkeypatch):
+    """A failed initial image must not fabricate a preview-ready image set."""
+    workdir = make_article_workdir(tmp_path)
+    monkeypatch.setattr(render, "generate_image_with_provider", raising_image_call)
+
+    with pytest.raises(RuntimeError, match="quota"):
+        render.generate_images_in_workdir(
+            workdir, TOPIC, render.default_image_rels(), IMAGE_SETTINGS
+        )
+
+    assert not (workdir / "image-status.json").exists()
+    assert list((workdir / "images").iterdir()) == []
 
 
 def test_generate_images_accepts_every_successful_provider_result(tmp_path, monkeypatch):
@@ -175,12 +207,14 @@ def test_generate_images_accepts_every_successful_provider_result(tmp_path, monk
     (workdir / "images").mkdir(parents=True)
     calls = []
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, provider_settings, size):
         calls.append((prompt, Path(output).name, size))
         Path(output).write_bytes(b"real")
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
-    mode = render.generate_images_in_workdir(workdir, TOPIC, render.default_image_rels())
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
+    mode = render.generate_images_in_workdir(
+        workdir, TOPIC, render.default_image_rels(), IMAGE_SETTINGS
+    )
 
     assert mode == "real"
     assert len(calls) == 5
@@ -226,14 +260,16 @@ def test_generate_images_ground_each_prompt_in_matching_article_section(tmp_path
     (workdir / "article.md").write_text(ARTICLE_GROUNDING_MD, encoding="utf-8")
     calls = []
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, provider_settings, size):
         calls.append(prompt)
         Path(output).write_bytes(b"real")
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
     topic = {"id": "custom-empty", "title": "一个含糊标题", "category": "心理学", "key_points": []}
 
-    render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+    render.generate_images_in_workdir(
+        workdir, topic, render.default_image_rels(), IMAGE_SETTINGS
+    )
 
     expected_facts = [
         "青年在职业与城市之间反复迁移",
@@ -260,14 +296,16 @@ def test_generate_images_records_the_actual_prompts(tmp_path, monkeypatch):
     (workdir / "article.md").write_text(ARTICLE_GROUNDING_MD, encoding="utf-8")
     generated = {}
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, provider_settings, size):
         generated[Path(output).stem] = prompt
         Path(output).write_bytes(b"real")
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
     topic = {"id": "custom-empty", "title": "一个含糊标题", "category": "心理学", "key_points": []}
 
-    render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+    render.generate_images_in_workdir(
+        workdir, topic, render.default_image_rels(), IMAGE_SETTINGS
+    )
 
     saved = json.loads((workdir / "image-prompts.json").read_text(encoding="utf-8"))
     assert saved == generated

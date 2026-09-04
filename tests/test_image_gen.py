@@ -21,6 +21,12 @@ import image_gen  # noqa: E402
 from toolkit import env_config  # noqa: E402
 
 
+IMAGE_SETTINGS = {
+    "provider_id": "cliproxy", "adapter": "openai", "model": "gpt-image-2",
+    "base_url": "http://127.0.0.1:8317/v1", "api_key": "image-secret",
+}
+
+
 def _config(*entries):
     return {"image": {"providers": list(entries)}}
 
@@ -207,6 +213,34 @@ def test_generate_image_has_simple_public_signature():
     ]
 
 
+def test_generate_image_with_provider_builds_only_selected_provider(tmp_path, monkeypatch):
+    """The explicit Web path must not enter the legacy fallback chain."""
+    calls = []
+
+    class FakeProvider:
+        def resolve_size(self, size):
+            return "1536x1024"
+
+        def generate(self, prompt, size):
+            calls.append((prompt, size))
+            return b"image-bytes"
+
+    monkeypatch.setattr(
+        image_gen, "_build_provider_from_entry", lambda entry: FakeProvider()
+    )
+    monkeypatch.setattr(
+        image_gen,
+        "_build_provider_chain",
+        lambda config: pytest.fail("strict Web generation entered provider fallback chain"),
+    )
+    out = tmp_path / "image.jpg"
+
+    image_gen.generate_image_with_provider("prompt", out, IMAGE_SETTINGS)
+
+    assert out.read_bytes() == b"image-bytes"
+    assert calls == [("prompt", "1536x1024")]
+
+
 def test_generate_image_accepts_first_successful_provider_bytes(tmp_path, fake_chain):
     minimax = FakeProvider("minimax", [b"image-with-any-content"])
     fallback = FakeProvider("openai", [b"never"])
@@ -228,6 +262,16 @@ def test_generate_image_falls_back_after_provider_exception(tmp_path, fake_chain
     image_gen.generate_image("prompt", str(out), config={})
 
     assert out.read_bytes() == b"clean"
+
+
+def test_legacy_generate_image_still_falls_back(fake_chain, tmp_path):
+    first = FakeProvider("first", [RuntimeError("first failed")])
+    second = FakeProvider("second", [b"clean"])
+    fake_chain(first, second)
+
+    image_gen.generate_image("prompt", tmp_path / "out.jpg", config={})
+
+    assert len(second.prompts) == 1
 
 
 def test_generate_image_raises_when_every_provider_fails(tmp_path, fake_chain):
