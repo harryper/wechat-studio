@@ -34,19 +34,23 @@ pip install -r requirements.txt pytest
 
 ## 配置
 
+推荐直接 `cp .env.example .env` 后填值；`.env.example` 是变量清单的单一来源。
+
 推荐在项目根目录创建不入库的 `.env`：
 
 ```dotenv
 # Web 生成文章默认使用 MiniMax 的 Anthropic Messages 兼容接口
 MINIMAX_API_KEY=your-minimax-key
 ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
-ANTHROPIC_AUTH_TOKEN=your-minimax-key
+ANTHROPIC_API_KEY=your-minimax-key
 ANTHROPIC_MODEL=MiniMax-M3
 
 # 图片默认按本机 gpt-image-2 → Seedream → MiniMax 的顺序生成
 CLIPROXY_IMAGE_API_KEY=your-local-proxy-key
 # 直接运行 CLI 时默认连接 127.0.0.1:8317；Compose 会自动改用宿主机地址
 ARK_API_KEY=your-volcano-ark-key
+# 供应商顺序，取值为 config.yaml 中的 id
+IMAGE_PROVIDER_ORDER=cliproxy,seedream,minimax
 
 # 创建微信草稿时必需
 WECHAT_APPID=wx_your_appid
@@ -54,7 +58,6 @@ WECHAT_SECRET=your_appsecret
 
 # 可选的 OpenAI 图片回退；默认关闭，启用后才会产生相关费用
 OPENAI_API_KEY=sk-...
-OPENAI_IMAGE_ENABLED=false
 
 # Web 登录，正式部署务必修改
 APP_PASSWORD=a-strong-password

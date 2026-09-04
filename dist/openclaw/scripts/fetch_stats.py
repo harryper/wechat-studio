@@ -32,6 +32,10 @@ TOOLKIT_CONFIG_PATHS = [
 ]
 
 
+sys.path.insert(0, str(SKILL_DIR))
+from toolkit import env_config
+
+
 def _expand_env(value):
     if isinstance(value, str):
         pattern = r'\$\{([^}:]+)(?::-(.*?))?}'
@@ -45,22 +49,8 @@ def _expand_env(value):
         return [_expand_env(v) for v in value]
     return value
 
-def _load_env_files() -> None:
-    """Load local uncommitted env files so cron/subagents work without sourcing ~/.bashrc."""
-    for env_path in [SKILL_DIR / ".env", Path.cwd() / ".env"]:
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            os.environ.setdefault(key, value)
-
 def _load_toolkit_config() -> dict:
-    _load_env_files()
+    env_config.load_env()
     for p in TOOLKIT_CONFIG_PATHS:
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:

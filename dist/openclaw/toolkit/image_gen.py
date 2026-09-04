@@ -40,6 +40,9 @@ from pathlib import Path
 import requests
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from toolkit import env_config
+
 # --- Config ---
 
 CONFIG_PATHS = [
@@ -63,39 +66,8 @@ def _expand_env(value):
         return [_expand_env(v) for v in value]
     return value
 
-def _load_env_files() -> None:
-    """Load local uncommitted env files so cron/subagents work without sourcing ~/.bashrc."""
-    for env_path in [Path(__file__).parent.parent / ".env", Path.cwd() / ".env"]:
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            os.environ.setdefault(key, value)
-
-    if not os.environ.get("MINIMAX_API_KEY"):
-        for key_path in [
-            Path(__file__).parents[2] / "voice-studio" / "scripts" / "minimax_api_key.txt",
-            Path(__file__).parents[2] / "voice-studio" / "minimax_api_key.txt",
-        ]:
-            if key_path.exists():
-                os.environ.setdefault("MINIMAX_API_KEY", key_path.read_text(encoding="utf-8").strip())
-                break
-    # Last resort: the MiniMax image API shares the same account/key as the
-    # Anthropic-compatible LLM endpoint exported as ANTHROPIC_AUTH_TOKEN.
-    # Direct assignment because docker-compose may pre-set MINIMAX_API_KEY
-    # to an empty string, in which case setdefault is a no-op.
-    if not os.environ.get("MINIMAX_API_KEY"):
-        fallback = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-        if fallback:
-            os.environ["MINIMAX_API_KEY"] = fallback
-
 def _load_config() -> dict:
-    _load_env_files()
+    env_config.load_env()
     for p in CONFIG_PATHS:
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:
@@ -718,59 +690,39 @@ def _build_provider_from_entry(entry: dict) -> ImageProvider:
     return provider_cls(**kwargs)
 
 
-_FALSY_CONFIG_VALUES = {"false", "0", "no", "off", ""}
-
-
-def _config_enabled(value) -> bool:
-    """Interpret a provider ``enabled`` flag.
-
-    Config values arrive either as real YAML booleans or as the string left
-    behind by ``${OPENAI_IMAGE_ENABLED:-false}`` expansion, so both shapes
-    have to resolve to the same answer.
-    """
-    if value is None:
-        return True
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() not in _FALSY_CONFIG_VALUES
-    return bool(value)
-
-
 def _build_provider_chain(config: dict) -> list[ImageProvider]:
-    """Build an ordered list of providers to try.
+    """Build the ordered provider chain.
 
-    Supports two config formats:
-      - Legacy:  image.provider + image.api_key (single provider)
-      - New:     image.providers (list, tried in order with auto-fallback)
+    config.yaml only declares what each provider is; IMAGE_PROVIDER_ORDER
+    decides which ones run and in what order.
     """
-    img_cfg = config.get("image", {})
-    providers_list = img_cfg.get("providers")
+    entries = config.get("image", {}).get("providers") or []
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("config.yaml 缺少 image.providers 列表。")
 
-    if providers_list and isinstance(providers_list, list):
-        chain = []
-        for entry in providers_list:
-            if not _config_enabled(entry.get("enabled")):
-                continue
-            try:
-                chain.append(_build_provider_from_entry(entry))
-            except ValueError:
-                continue  # skip misconfigured entries
-        if not chain:
+    by_id = {}
+    for entry in entries:
+        entry_id = entry.get("id")
+        if not entry_id:
             raise ValueError(
-                "No valid providers in image.providers list. "
-                "Each entry needs 'provider' and 'api_key'."
+                f"image.providers 条目缺少 id：{entry.get('provider', '?')}。"
+                "每个条目都需要唯一 id 供 IMAGE_PROVIDER_ORDER 引用。"
             )
-        return chain
+        by_id[entry_id] = entry
 
-    # Legacy single-provider format
-    api_key = img_cfg.get("api_key")
-    if not api_key:
+    order = env_config.provider_order() or list(by_id)
+
+    unknown = [i for i in order if i not in by_id]
+    if unknown:
         raise ValueError(
-            "image.api_key not set in config.yaml. "
-            "Configure your API key to enable image generation."
+            f"IMAGE_PROVIDER_ORDER 含未知 id：{', '.join(unknown)}。"
+            f"config.yaml 中可用的 id：{', '.join(by_id)}。"
         )
-    return [_build_provider_from_entry(img_cfg)]
+
+    chain = [_build_provider_from_entry(by_id[i]) for i in order]
+    if not chain:
+        raise ValueError("IMAGE_PROVIDER_ORDER 未选中任何 provider。")
+    return chain
 
 
 def _build_provider(config: dict) -> ImageProvider:
@@ -862,10 +814,14 @@ def main():
             image_cfg = config.setdefault("image", {})
             providers = image_cfg.get("providers")
             if isinstance(providers, list):
-                selected = [p for p in providers if p.get("provider") == args.provider]
-                image_cfg["providers"] = selected or [{"provider": args.provider}]
-            else:
-                image_cfg["provider"] = args.provider
+                selected = [p for p in providers if p.get("id") == args.provider]
+                if not selected:
+                    raise SystemExit(
+                        f"未知 provider id：{args.provider}。可用："
+                        f"{', '.join(p.get('id', '?') for p in providers)}"
+                    )
+                image_cfg["providers"] = selected
+            os.environ.pop("IMAGE_PROVIDER_ORDER", None)
         path = generate_image(args.prompt, args.output, size=args.size, config=config)
         print(f"Image saved: {path}")
     except Exception as e:
