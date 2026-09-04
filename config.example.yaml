@@ -8,86 +8,30 @@ wechat:
   author: ""  # 默认署名（可选）
 
 # AI 图片生成
-# 支持 10 个 provider，配一个就能用，配多个自动 fallback。
-#
-# ┌─────────────────┬────────────────────────────────────────────────┬────────────────────┐
-# │ Provider        │ 获取 API Key                                   │ 特点               │
-# ├─────────────────┼────────────────────────────────────────────────┼────────────────────┤
-# │ dashscope       │ https://dashscope.console.aliyun.com/          │ 阿里通义万相       │
-# │ jimeng          │ https://console.volcengine.com/iam             │ 字节即梦，中文强   │
-# │ seedream        │ https://console.volcengine.com/ark             │ 豆包生图，中文强   │
-# │ minimax         │ https://platform.minimaxi.com/                 │ 国内 provider      │
-# │ openai          │ https://platform.openai.com/api-keys           │ DALL-E，通用性强   │
-# │ azure_openai    │ Azure Portal                                   │ 国内可访问的 OpenAI│
-# │ gemini          │ https://aistudio.google.com/apikey             │ 免费额度较多       │
-# │ openrouter      │ https://openrouter.ai/settings/keys            │ 多模型代理         │
-# │ replicate       │ https://replicate.com/account/api-tokens       │ 开源模型丰富       │
-# └─────────────────┴────────────────────────────────────────────────┴────────────────────┘
-#
-# 支持两种配置方式：
-
-# 方式一：单 provider（简单用法，填一个就行）
-# 默认建议优先 OpenAI；也可使用下方的多供应商配置
+# 供应商顺序由 .env 的 IMAGE_PROVIDER_ORDER 决定，取值为下方各条目的 id。
+# 未设置时按 config.yaml 中 image.providers 的声明顺序回退。
 image:
-  provider: "openai"           # 见上表 Provider 列
-  api_key: "${OPENAI_API_KEY}"
-  model: "gpt-image-2"
-  # base_url: "https://api.openai.com/v1"  # 可选
-
-# 方式二：多 provider 自动 fallback（推荐）
-# 按顺序尝试，第一个失败自动切换下一个，不需要全部填写
-# 每个条目必须有唯一 id；.env 的 IMAGE_PROVIDER_ORDER 用 id 决定启用哪些、什么顺序。
-# 下例先使用本机 cliproxyapi，再回退 Seedream 和 MiniMax。
-# image:
-#   providers:
-#     - id: cliproxy
-#       provider: openai
-#       api_key: "${CLIPROXY_IMAGE_API_KEY}"
-#       model: "gpt-image-2"
-#       base_url: "${CLIPROXY_IMAGE_BASE_URL:-http://127.0.0.1:8317/v1}"
-#     - id: seedream
-#       provider: seedream
-#       api_key: "${ARK_API_KEY}"
-#       model: "doubao-seedream-4-0-250828"
-#       base_url: "https://ark.cn-beijing.volces.com/api/v3"
-#     - id: minimax
-#       provider: minimax
-#       api_key: "${MINIMAX_API_KEY}"
-#       model: "image-01"
-#     - id: openai
-#       provider: openai
-#       api_key: "${OPENAI_API_KEY}"
-#       model: "gpt-image-2"
-#     - id: dashscope
-#       provider: dashscope
-#       api_key: "${DASHSCOPE_API_KEY}"
-#       # model: "qwen-image-2.0-pro"
-#     - id: jimeng
-#       provider: jimeng
-#       api_key: "${JIMENG_ACCESS_KEY}"      # 即梦需要 access_key_id + secret_key
-#       secret_key: "${JIMENG_SECRET_KEY}"
-#       # model: "jimeng_t2i_v40"
-#     - id: minimax_alt
-#       provider: minimax
-#       api_key: "${MINIMAX_API_KEY}"
-#       # model: "image-01"
-#     - id: azure_openai
-#       provider: azure_openai
-#       api_key: "${AZURE_OPENAI_API_KEY}"
-#       base_url: "https://YOUR-RESOURCE.openai.azure.com/openai"  # 必填
-#       # deployment: "gpt-image-2"
-#     - id: gemini
-#       provider: gemini
-#       api_key: "${GEMINI_API_KEY}"
-#       # model: "gemini-3.1-flash-image-preview"
-#     - id: openrouter
-#       provider: openrouter
-#       api_key: "${OPENROUTER_API_KEY}"
-#       # model: "google/gemini-3.1-flash-image-preview"
-#     - id: replicate
-#       provider: replicate
-#       api_key: "${REPLICATE_API_TOKEN}"
-#       # model: "google/nano-banana-pro"
+  providers:
+    - id: cliproxy
+      provider: "openai"
+      api_key: "${CLIPROXY_IMAGE_API_KEY}"
+      model: "gpt-image-2"
+      base_url: "${CLIPROXY_IMAGE_BASE_URL:-http://127.0.0.1:8317/v1}"
+    - id: seedream
+      provider: "seedream"
+      api_key: "${ARK_API_KEY}"
+      model: "doubao-seedream-4-0-250828"
+      base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    - id: minimax
+      provider: "minimax"
+      api_key: "${MINIMAX_API_KEY}"
+      model: "image-01"
+      base_url: "https://api.minimaxi.com/v1"
+    - id: openai
+      provider: "openai"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-image-2"
+      base_url: "https://api.openai.com/v1"
 
 # 默认排版主题
 theme: "professional-clean"
