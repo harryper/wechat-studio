@@ -57,15 +57,18 @@
   }
   header h1 .emoji { font-size: 20px; }
   header .actions { display: flex; gap: 12px; align-items: center; }
-  header a {
+  header a, header .header-action {
     color: var(--text-2);
     text-decoration: none;
     font-size: 13px;
     padding: 6px 10px;
     border-radius: var(--radius);
     transition: all 0.15s;
+    background: transparent;
+    border: 0;
+    font-family: inherit;
   }
-  header a:hover { background: var(--surface-3); color: var(--text-1); }
+  header a:hover, header .header-action:hover { background: var(--surface-3); color: var(--text-1); }
   aside {
     grid-area: sidebar;
     background: var(--surface-1);
@@ -225,6 +228,85 @@
     cursor: pointer;
   }
   .modal-footer button:hover { background: var(--primary); border-color: var(--primary); }
+  .settings-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    z-index: 1010;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.66);
+  }
+  .settings-backdrop.show { display: flex; }
+  .settings-dialog {
+    width: min(680px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 22px 64px rgba(0, 0, 0, 0.5);
+  }
+  .settings-dialog-header {
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-dialog-header h2 { font-size: 16px; line-height: 1.3; }
+  .settings-dialog-header p { margin-top: 4px; color: var(--text-3); font-size: 12px; }
+  .settings-tabs { display: flex; gap: 4px; margin-top: 14px; }
+  .settings-tab {
+    padding: 6px 11px;
+    border: 1px solid transparent;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .settings-tab.active { color: var(--text-1); border-color: var(--border); background: var(--surface-3); }
+  .settings-dialog-body { overflow-y: auto; padding: 16px 18px; }
+  .settings-panel { display: none; }
+  .settings-panel.active { display: block; }
+  .settings-notice {
+    margin-bottom: 14px;
+    padding: 9px 11px;
+    color: var(--warning);
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.28);
+    border-radius: var(--radius);
+    font-size: 12px;
+  }
+  .settings-field { margin-bottom: 13px; }
+  .settings-field label { margin-bottom: 5px; }
+  .settings-key-field { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .settings-eye { min-width: 42px; padding: 6px 9px; }
+  .settings-test-status {
+    display: none;
+    margin-top: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-2);
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+  .settings-test-status.show { display: block; }
+  .settings-test-status.success { color: var(--success); border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.08); }
+  .settings-test-status.error { color: var(--danger); border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.08); }
+  .settings-image-preview {
+    display: none;
+    width: min(220px, 100%);
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .settings-image-preview.show { display: block; }
+  .settings-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+  }
   .preview-frame {
     width: min(760px, 100%);
     flex: 1;
@@ -393,6 +475,15 @@
       box-shadow: none;
     }
   }
+  @media (max-width: 560px) {
+    header { padding: 12px 14px; }
+    header h1 { font-size: 16px; }
+    header .actions { gap: 2px; }
+    header a, header .header-action { padding: 6px; }
+    .settings-backdrop { padding: 8px; }
+    .settings-dialog { width: min(680px, calc(100vw - 16px)); max-height: calc(100vh - 16px); }
+    .settings-dialog-header, .settings-dialog-body, .settings-dialog-footer { padding-left: 14px; padding-right: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -400,6 +491,7 @@
     <header>
       <h1><span class="emoji">📝</span>微信公众号工作台</h1>
       <div class="actions">
+        <button class="header-action" id="btn-model-settings" type="button">⚙ 设置</button>
         <a href="/api/health" target="_blank">健康检查</a>
         <a href="/logout">退出</a>
       </div>
@@ -527,6 +619,73 @@
     </div>
   </div>
 
+  <div class="settings-backdrop" id="model-settings-backdrop" aria-hidden="true">
+    <section class="settings-dialog" id="model-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="model-settings-title" tabindex="-1">
+      <div class="settings-dialog-header">
+        <h2 id="model-settings-title">模型设置</h2>
+        <p>仅影响之后提交的新任务</p>
+        <div class="settings-tabs" role="tablist" aria-label="模型类型">
+          <button class="settings-tab active" id="settings-tab-writing" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-writing">写作模型</button>
+          <button class="settings-tab" id="settings-tab-image" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-image">图片模型</button>
+        </div>
+      </div>
+      <div class="settings-dialog-body">
+        <div class="settings-notice">API Key 将完整返回给已登录浏览器</div>
+        <div class="settings-panel active" id="settings-panel-writing" role="tabpanel" aria-labelledby="settings-tab-writing">
+          <div class="settings-field">
+            <label for="writing-provider">服务商</label>
+            <select id="writing-provider"></select>
+          </div>
+          <div class="settings-field">
+            <label for="writing-model">模型</label>
+            <input id="writing-model" autocomplete="off">
+          </div>
+          <div class="settings-field">
+            <label for="writing-base-url">Base URL</label>
+            <input id="writing-base-url" type="url" inputmode="url" autocomplete="url">
+          </div>
+          <div class="settings-field">
+            <label for="writing-api-key">API Key</label>
+            <div class="settings-key-field">
+              <input id="writing-api-key" type="password" autocomplete="off" spellcheck="false">
+              <button class="settings-eye" id="btn-toggle-writing-api-key" type="button" aria-label="显示写作 API Key" aria-pressed="false">👁</button>
+            </div>
+          </div>
+          <button id="btn-test-writing" type="button">测试写作连接</button>
+          <div class="settings-test-status" id="writing-test-status" role="status" aria-live="polite"></div>
+        </div>
+        <div class="settings-panel" id="settings-panel-image" role="tabpanel" aria-labelledby="settings-tab-image" hidden>
+          <div class="settings-field">
+            <label for="image-provider">服务商</label>
+            <select id="image-provider"></select>
+          </div>
+          <div class="settings-field">
+            <label for="image-model">模型</label>
+            <input id="image-model" autocomplete="off">
+          </div>
+          <div class="settings-field">
+            <label for="image-base-url">Base URL</label>
+            <input id="image-base-url" type="url" inputmode="url" autocomplete="url">
+          </div>
+          <div class="settings-field">
+            <label for="image-api-key">API Key</label>
+            <div class="settings-key-field">
+              <input id="image-api-key" type="password" autocomplete="off" spellcheck="false">
+              <button class="settings-eye" id="btn-toggle-image-api-key" type="button" aria-label="显示图片 API Key" aria-pressed="false">👁</button>
+            </div>
+          </div>
+          <button id="btn-test-image" type="button">测试图片连接</button>
+          <div class="settings-test-status" id="image-test-status" role="status" aria-live="polite"></div>
+          <img class="settings-image-preview" id="image-test-preview" alt="图片连接测试缩略图">
+        </div>
+      </div>
+      <div class="settings-dialog-footer">
+        <button id="btn-cancel-model-settings" type="button">取消</button>
+        <button class="primary" id="btn-save-model-settings" type="button">保存设置</button>
+      </div>
+    </section>
+  </div>
+
   <script>
   (function () {
     const $ = (id) => document.getElementById(id);
@@ -549,6 +708,19 @@
     const historyList = $('history-list');
     const toolbar = $('work-toolbar');
     const editor = $('markdown-editor');
+    const settingsBackdrop = $('model-settings-backdrop');
+    const settingsDialog = $('model-settings-dialog');
+    const settingsTrigger = $('btn-model-settings');
+
+    // Settings received from the server and any in-dialog edits remain in this
+    // closure only. They are deliberately never persisted in browser storage.
+    let settingsRegistry = null;
+    let providerDrafts = null;
+    let activeSettingsProviders = null;
+    let settingsTriggerFocus = null;
+    let settingsTestRunning = false;
+    let settingsPreviewUrl = null;
+    let settingsLoadToken = 0;
 
     // currentPreview: {history_id, topic, theme, html_url, image_mode}
     let currentPreview = null;
@@ -564,6 +736,255 @@
       published: '已发布', archived: '已归档', generating: '生成中',
       draft: '草稿', review: '待检查', ready: '可发布', failed: '失败'
     };
+
+    function settingsField(kind, name) {
+      return $(kind + '-' + name);
+    }
+
+    function settingsStatus(kind, message, state) {
+      const status = $(kind + '-test-status');
+      status.textContent = message || '';
+      status.className = 'settings-test-status' + (message ? ' show' : '') + (state ? ' ' + state : '');
+    }
+
+    function settingsSection(kind) {
+      return {
+        provider_id: settingsField(kind, 'provider').value,
+        model: settingsField(kind, 'model').value.trim(),
+        base_url: settingsField(kind, 'base-url').value.trim(),
+        api_key: settingsField(kind, 'api-key').value,
+      };
+    }
+
+    function settingsProvider(kind, providerId) {
+      return (settingsRegistry && settingsRegistry[kind] || []).find(item => item.provider_id === providerId);
+    }
+
+    function writeSettingsSection(kind, section) {
+      settingsField(kind, 'provider').value = section.provider_id || '';
+      settingsField(kind, 'model').value = section.model || '';
+      settingsField(kind, 'base-url').value = section.base_url || '';
+      settingsField(kind, 'api-key').value = section.api_key || '';
+      activeSettingsProviders[kind] = section.provider_id || '';
+    }
+
+    function saveProviderDraft(kind) {
+      const section = settingsSection(kind);
+      const providerId = activeSettingsProviders[kind];
+      if (providerId) providerDrafts[kind].set(providerId, {...section, provider_id: providerId});
+    }
+
+    function selectSettingsProvider(kind, providerId) {
+      const saved = providerDrafts[kind].get(providerId);
+      const provider = settingsProvider(kind, providerId);
+      const section = saved || {
+        provider_id: providerId,
+        model: provider ? provider.default_model : '',
+        base_url: provider ? provider.default_base_url : '',
+        api_key: '',
+      };
+      writeSettingsSection(kind, section);
+    }
+
+    function populateSettingsProviders(kind, selectedId) {
+      const select = settingsField(kind, 'provider');
+      select.innerHTML = '';
+      for (const provider of (settingsRegistry[kind] || [])) {
+        const option = document.createElement('option');
+        option.value = provider.provider_id;
+        option.textContent = provider.label;
+        select.appendChild(option);
+      }
+      const available = settingsRegistry[kind] || [];
+      selectSettingsProvider(kind, selectedId || (available[0] && available[0].provider_id) || '');
+    }
+
+    function setSettingsTab(kind) {
+      for (const candidate of ['writing', 'image']) {
+        const active = candidate === kind;
+        $('settings-tab-' + candidate).classList.toggle('active', active);
+        $('settings-tab-' + candidate).setAttribute('aria-selected', String(active));
+        const panel = $('settings-panel-' + candidate);
+        panel.classList.toggle('active', active);
+        panel.hidden = !active;
+      }
+    }
+
+    function clearSettingsPreview() {
+      const preview = $('image-test-preview');
+      preview.removeAttribute('src');
+      preview.classList.remove('show');
+      if (settingsPreviewUrl) URL.revokeObjectURL(settingsPreviewUrl);
+      settingsPreviewUrl = null;
+    }
+
+    function clearModelSettings() {
+      clearSettingsPreview();
+      for (const kind of ['writing', 'image']) {
+        settingsField(kind, 'provider').innerHTML = '';
+        settingsField(kind, 'model').value = '';
+        settingsField(kind, 'base-url').value = '';
+        settingsField(kind, 'api-key').value = '';
+        settingsField(kind, 'api-key').type = 'password';
+        const eye = $('btn-toggle-' + kind + '-api-key');
+        eye.setAttribute('aria-pressed', 'false');
+        eye.setAttribute('aria-label', '显示' + (kind === 'writing' ? '写作' : '图片') + ' API Key');
+        settingsStatus(kind, '', '');
+      }
+      settingsRegistry = null;
+      providerDrafts = null;
+      activeSettingsProviders = null;
+    }
+
+    function focusableSettingsElements() {
+      return [...settingsDialog.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )].filter(element => !element.hidden && !element.closest('[hidden]'));
+    }
+
+    function closeModelSettings() {
+      if (settingsTestRunning) {
+        settingsStatus('writing', '连接测试进行中，请等待完成后再关闭。', 'error');
+        settingsStatus('image', '连接测试进行中，请等待完成后再关闭。', 'error');
+        return false;
+      }
+      settingsBackdrop.classList.remove('show');
+      settingsBackdrop.setAttribute('aria-hidden', 'true');
+      settingsLoadToken += 1;
+      document.removeEventListener('keydown', handleSettingsKeydown);
+      clearModelSettings();
+      const trigger = settingsTriggerFocus;
+      settingsTriggerFocus = null;
+      if (trigger) trigger.focus();
+      return true;
+    }
+
+    function handleSettingsKeydown(event) {
+      if (!settingsBackdrop.classList.contains('show')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeModelSettings();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = focusableSettingsElements();
+      if (!focusable.length) {
+        event.preventDefault();
+        settingsDialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    async function openModelSettings() {
+      if (settingsBackdrop.classList.contains('show')) return;
+      settingsTriggerFocus = document.activeElement;
+      const loadToken = ++settingsLoadToken;
+      settingsBackdrop.classList.add('show');
+      settingsBackdrop.setAttribute('aria-hidden', 'false');
+      settingsDialog.focus();
+      document.addEventListener('keydown', handleSettingsKeydown);
+      settingsStatus('writing', '正在加载模型设置…', '');
+      try {
+        const response = await fetch('/api/model-settings');
+        const data = await response.json();
+        if (loadToken !== settingsLoadToken || !settingsBackdrop.classList.contains('show')) return;
+        if (!response.ok || !data.ok) throw new Error(data.error || '模型设置加载失败');
+        settingsRegistry = data.registry;
+        providerDrafts = {writing: new Map(), image: new Map()};
+        activeSettingsProviders = {writing: '', image: ''};
+        for (const kind of ['writing', 'image']) {
+          const section = data.settings[kind];
+          providerDrafts[kind].set(section.provider_id, {
+            provider_id: section.provider_id,
+            model: section.model || '',
+            base_url: section.base_url || '',
+            api_key: section.api_key || '',
+          });
+          populateSettingsProviders(kind, section.provider_id);
+        }
+        settingsStatus('writing', data.warning || '', data.warning ? 'error' : '');
+        setSettingsTab('writing');
+        $('settings-tab-writing').focus();
+      } catch (error) {
+        if (loadToken !== settingsLoadToken || !settingsBackdrop.classList.contains('show')) return;
+        settingsStatus('writing', error.message || String(error), 'error');
+      }
+    }
+
+    function toggleSettingsKey(kind) {
+      const input = settingsField(kind, 'api-key');
+      const eye = $('btn-toggle-' + kind + '-api-key');
+      const visible = input.type === 'password';
+      input.type = visible ? 'text' : 'password';
+      eye.setAttribute('aria-pressed', String(visible));
+      eye.setAttribute('aria-label', (visible ? '隐藏' : '显示') + (kind === 'writing' ? '写作' : '图片') + ' API Key');
+    }
+
+    async function runSettingsTest(kind) {
+      if (settingsTestRunning || !providerDrafts) return;
+      if (kind === 'image' && !window.confirm('测试会实际生成一张图片并产生费用，是否继续？')) return;
+      settingsTestRunning = true;
+      const button = $('btn-test-' + kind);
+      button.disabled = true;
+      settingsStatus(kind, kind === 'image' ? '正在生成测试图片…' : '正在测试连接…', '');
+      if (kind === 'image') clearSettingsPreview();
+      try {
+        const response = await fetch('/api/model-settings/test-' + kind, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(kind === 'image'
+            ? {settings: settingsSection(kind), confirm_charge: true}
+            : {settings: settingsSection(kind)}),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || '连接测试失败');
+        const suffix = data.elapsed_ms == null ? '' : '（' + data.elapsed_ms + ' ms）';
+        settingsStatus(kind, '连接成功 ' + suffix, 'success');
+        if (kind === 'image' && data.image) {
+          $('image-test-preview').src = data.image;
+          $('image-test-preview').classList.add('show');
+        }
+      } catch (error) {
+        settingsStatus(kind, error.message || String(error), 'error');
+      } finally {
+        settingsTestRunning = false;
+        button.disabled = false;
+      }
+    }
+
+    async function saveModelSettings() {
+      if (settingsTestRunning || !providerDrafts) return;
+      const button = $('btn-save-model-settings');
+      button.disabled = true;
+      settingsStatus('writing', '正在保存模型设置…', '');
+      try {
+        const response = await fetch('/api/model-settings', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({settings: {
+            schema_version: 1,
+            writing: settingsSection('writing'),
+            image: settingsSection('image'),
+          }}),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || '模型设置保存失败');
+        closeModelSettings();
+      } catch (error) {
+        settingsStatus('writing', error.message || String(error), 'error');
+      } finally {
+        button.disabled = false;
+      }
+    }
 
     function renderTopics(items) {
       topicCenter.innerHTML = '';
@@ -1062,6 +1483,25 @@
     $('btn-regen-images').addEventListener('click', () => regenerate('images'));
     $('btn-regen-image').addEventListener('click', () => regenerate('image', $('image-role').value));
     $('btn-apply-theme').addEventListener('click', applyTheme);
+    settingsTrigger.addEventListener('click', openModelSettings);
+    $('settings-tab-writing').addEventListener('click', () => setSettingsTab('writing'));
+    $('settings-tab-image').addEventListener('click', () => setSettingsTab('image'));
+    for (const kind of ['writing', 'image']) {
+      settingsField(kind, 'provider').addEventListener('change', (event) => {
+        if (!providerDrafts) return;
+        saveProviderDraft(kind);
+        selectSettingsProvider(kind, event.target.value);
+        settingsStatus(kind, '', '');
+        if (kind === 'image') clearSettingsPreview();
+      });
+      $('btn-toggle-' + kind + '-api-key').addEventListener('click', () => toggleSettingsKey(kind));
+      $('btn-test-' + kind).addEventListener('click', () => runSettingsTest(kind));
+    }
+    $('btn-save-model-settings').addEventListener('click', saveModelSettings);
+    $('btn-cancel-model-settings').addEventListener('click', closeModelSettings);
+    settingsBackdrop.addEventListener('click', (event) => {
+      if (event.target === settingsBackdrop) closeModelSettings();
+    });
     $('btn-new-topic').addEventListener('click', () => $('custom-topic-form').classList.toggle('show'));
     $('btn-cancel-topic').addEventListener('click', () => $('custom-topic-form').classList.remove('show'));
     $('btn-save-topic').addEventListener('click', saveCustomTopic);

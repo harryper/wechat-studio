@@ -3,6 +3,7 @@ import copy
 import importlib
 import io
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,21 @@ class FakeExecutor:
         return None
 
 
+class IdCollectingParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.ids = set()
+        self.input_types = {}
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        element_id = values.get("id")
+        if element_id:
+            self.ids.add(element_id)
+            if tag == "input":
+                self.input_types[element_id] = values.get("type", "text")
+
+
 @pytest.fixture
 def web_client(tmp_path, monkeypatch, memory_d1):
     executor = FakeExecutor()
@@ -86,6 +102,40 @@ def web_client(tmp_path, monkeypatch, memory_d1):
     client = app_module.app.test_client()
     client.set_cookie(app_module.COOKIE_NAME, app_module.COOKIE_VALUE)
     yield client, executor
+
+
+def test_index_renders_model_settings_dialog_contract(web_client):
+    client, _ = web_client
+
+    response = client.get("/")
+    rendered = response.get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    required = {
+        "btn-model-settings",
+        "model-settings-backdrop",
+        "settings-tab-writing",
+        "settings-tab-image",
+        "writing-provider",
+        "writing-model",
+        "writing-base-url",
+        "writing-api-key",
+        "image-provider",
+        "image-model",
+        "image-base-url",
+        "image-api-key",
+        "btn-test-writing",
+        "btn-test-image",
+        "btn-save-model-settings",
+        "btn-cancel-model-settings",
+    }
+
+    assert required <= parser.ids
+    assert parser.input_types["writing-api-key"] == "password"
+    assert parser.input_types["image-api-key"] == "password"
+    assert "API Key 将完整返回给已登录浏览器" in rendered
+    assert "仅影响之后提交的新任务" in rendered
 
 
 def test_model_settings_get_returns_full_keys_registry_and_no_store_headers(
