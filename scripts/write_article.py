@@ -228,7 +228,7 @@ def write_article(
                 "ANTHROPIC_BASE_URL", "写作使用的 Anthropic 兼容端点"
             ),
             "api_key": env_config.require("ANTHROPIC_API_KEY", "写作端点的 API Key"),
-            "model": env_config.require("ANTHROPIC_MODEL", "写作模型名"),
+            "model": model or env_config.require("ANTHROPIC_MODEL", "写作模型名"),
         }
     else:
         effective_settings = dict(settings)

@@ -132,6 +132,18 @@ def test_write_article_legacy_env_is_converted_to_anthropic_settings(monkeypatch
     }
 
 
+def test_write_article_legacy_model_override_does_not_require_env_model(monkeypatch):
+    monkeypatch.setattr(write_article.env_config, "_loaded", True)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://legacy.example")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "legacy-key")
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    captured = capture_generate_text(monkeypatch)
+
+    write_article.write_article(TOPIC, model="override")
+
+    assert captured["settings"]["model"] == "override"
+
+
 def test_write_article_model_override_does_not_mutate_settings(monkeypatch):
     captured = capture_generate_text(monkeypatch)
 
