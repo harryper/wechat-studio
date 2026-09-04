@@ -18,6 +18,7 @@ output/
 
 # Web UI runtime state
 webapp/_data/
+webapp/_data/model-settings.json
 
 # Wrangler local state and D1 emulation
 .wrangler/
