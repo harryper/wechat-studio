@@ -138,6 +138,16 @@ def test_index_renders_model_settings_dialog_contract(web_client):
     assert "仅影响之后提交的新任务" in rendered
 
 
+def test_index_model_settings_focus_trap_redirects_external_and_dialog_focus(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+
+    assert "if (!settingsDialog.contains(document.activeElement)) {" in rendered
+    assert "} else if (activeElement === settingsDialog) {" in rendered
+    assert "(event.shiftKey ? last : first).focus();" in rendered
+
+
 def test_model_settings_get_returns_full_keys_registry_and_no_store_headers(
     web_client, monkeypatch
 ):
