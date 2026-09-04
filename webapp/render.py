@@ -386,6 +386,7 @@ def write_article_to_workdir(
     topic: Dict[str, Any],
     workdir: Optional[Path] = None,
     client: Optional[str] = None,
+    writing_settings: Optional[Dict[str, str]] = None,
 ) -> Tuple[Path, List[str]]:
     """Write the article markdown into a workdir.
 
@@ -401,7 +402,7 @@ def write_article_to_workdir(
         workdir.mkdir()
     (workdir / "images").mkdir(exist_ok=True)
 
-    md_text = write_article(topic, client=client)
+    md_text = write_article(topic, client=client, settings=writing_settings)
 
     cover_rel = "images/cover.jpg"
     inline_rels = [f"images/inline-{i}.jpg" for i in range(1, 5)]

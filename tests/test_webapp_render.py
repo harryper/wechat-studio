@@ -19,6 +19,14 @@ from webapp import render
 
 
 CJK_PAIR_RE = re.compile(r"[一-鿿] [一-鿿]")
+WRITING_SETTINGS = {
+    "provider_id": "custom-openai",
+    "adapter": "openai_compatible",
+    "model": "writer",
+    "base_url": "https://llm.example/v1",
+    "api_key": "write-secret",
+}
+ARTICLE = "# 新标题\n\n## 摘要\n\n正文"
 
 
 def _make_workdir(tmp_path: Path, article_md: str) -> Path:
@@ -26,6 +34,23 @@ def _make_workdir(tmp_path: Path, article_md: str) -> Path:
     wd.mkdir()
     (wd / "article.md").write_text(article_md, encoding="utf-8")
     return wd
+
+
+def test_write_article_to_workdir_forwards_writing_settings(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        render,
+        "write_article",
+        lambda topic, **kwargs: captured.update(kwargs) or ARTICLE,
+    )
+
+    render.write_article_to_workdir(
+        {"title": "损失厌恶", "category": "认知偏差", "key_points": ["损失比同额收益更显著"]},
+        tmp_path,
+        writing_settings=WRITING_SETTINGS,
+    )
+
+    assert captured["settings"] == WRITING_SETTINGS
 
 
 def test_write_preview_html_drops_legacy_cjk_cjk_spacing(tmp_path, monkeypatch):

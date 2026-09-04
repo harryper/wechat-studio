@@ -33,6 +33,7 @@ FRAMEWORKS_DOC = SKILL_DIR / "references" / "frameworks-academic.md"
 
 sys.path.insert(0, str(SKILL_DIR))  # scripts/ 直接运行时仓库根不在 sys.path
 from toolkit import env_config
+from toolkit.llm_adapters import generate_text
 
 
 # ── 框架选择 ─────────────────────────────────────────────────────────
@@ -208,6 +209,7 @@ def write_article(
     topic: Dict[str, Any],
     *,
     client: Optional[str] = None,
+    settings: Optional[Dict[str, str]] = None,
     model: Optional[str] = None,
     max_tokens: int = 4096,
     timeout: int = 240,
@@ -218,28 +220,27 @@ def write_article(
     Raises RuntimeError on any API / parse failure — caller surfaces the
     error to the user, no silent fallback.
     """
-    llm_client = _build_client()
-    chosen_model = model or env_config.require("ANTHROPIC_MODEL", "写作模型名")
+    if settings is None:
+        effective_settings = {
+            "provider_id": "legacy-anthropic",
+            "adapter": "anthropic_messages",
+            "base_url": env_config.require(
+                "ANTHROPIC_BASE_URL", "写作使用的 Anthropic 兼容端点"
+            ),
+            "api_key": env_config.require("ANTHROPIC_API_KEY", "写作端点的 API Key"),
+            "model": env_config.require("ANTHROPIC_MODEL", "写作模型名"),
+        }
+    else:
+        effective_settings = dict(settings)
+    if model is not None:
+        effective_settings["model"] = model
     prompt = _build_prompt(topic, client=client)
-
-    try:
-        resp = llm_client.messages.create(
-            model=chosen_model,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except anthropic.APIError as e:
-        raise RuntimeError(f"LLM 调用失败：{type(e).__name__}: {e}") from e
-
-    parts = []
-    for block in resp.content:
-        text = getattr(block, "text", None)
-        if text:
-            parts.append(text)
-    raw = "".join(parts).strip()
-    if not raw:
-        raise RuntimeError("LLM 返回为空，未生成任何内容。")
+    raw = generate_text(
+        prompt,
+        effective_settings,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
 
     text = _strip_code_fence(raw)
     text = _enforce_title(text, fallback_title=topic.get("title", "未命名主题"))
