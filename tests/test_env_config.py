@@ -51,7 +51,9 @@ def test_empty_string_counts_as_unset(tmp_path, monkeypatch):
     assert env_config.get("PROBE_VAR") == "from-file"
 
 
-def test_get_returns_default_for_missing():
+def test_get_returns_default_for_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(env_config, "SKILL_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
     assert env_config.get("PROBE_VAR", "fallback") == "fallback"
 
 
@@ -76,10 +78,14 @@ def test_provider_order_parses_and_strips(monkeypatch):
     assert env_config.provider_order() == ["cliproxy", "seedream", "minimax"]
 
 
-def test_provider_order_returns_none_when_unset():
+def test_provider_order_returns_none_when_unset(tmp_path, monkeypatch):
+    monkeypatch.setattr(env_config, "SKILL_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
     assert env_config.provider_order() is None
 
 
-def test_provider_order_returns_none_when_empty(monkeypatch):
+def test_provider_order_returns_none_when_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(env_config, "SKILL_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("IMAGE_PROVIDER_ORDER", "   ")
     assert env_config.provider_order() is None
