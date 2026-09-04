@@ -11,10 +11,14 @@ _QUERY_SENSITIVE = re.compile(
 _ASSIGNMENT_SENSITIVE = re.compile(
     rf"(\b(?:{_SENSITIVE_NAME})\b\s*=\s*)[^\s,&#]+", re.IGNORECASE
 )
+_QUOTED_MAPPING_SENSITIVE = re.compile(
+    rf"((?:[\"'])(?:{_SENSITIVE_NAME}|authorization)(?:[\"'])\s*:\s*[\"'])[^\"']*([\"'])",
+    re.IGNORECASE,
+)
 _AUTHORIZATION = re.compile(
     r"\bAuthorization\s*:\s*(?:Bearer\s+|Basic\s+)?[^\s,]+", re.IGNORECASE
 )
-_URL_USERINFO = re.compile(r"\b(https?://)[^/@\s]+@", re.IGNORECASE)
+_URL_USERINFO = re.compile(r"\b(https?://)[^\s/?#]*@", re.IGNORECASE)
 
 
 def validate_base_url(value: str) -> str:
@@ -55,4 +59,5 @@ def redact_sensitive(value: object, secrets: tuple[str, ...] = ()) -> str:
     text = _URL_USERINFO.sub(r"\1", text)
     text = _AUTHORIZATION.sub("Authorization: ***", text)
     text = _QUERY_SENSITIVE.sub(r"\1***", text)
+    text = _QUOTED_MAPPING_SENSITIVE.sub(r"\1***\2", text)
     return _ASSIGNMENT_SENSITIVE.sub(r"\1***", text)

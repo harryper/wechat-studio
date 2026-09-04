@@ -84,3 +84,17 @@ def test_redact_sensitive_removes_keys_and_sensitive_query_values():
 def test_redact_sensitive_removes_userinfo_and_authorization_values():
     message = "Authorization: Bearer private-token https://user:pass@example.com/v1?Key=value"
     assert redact_sensitive(message) == "Authorization: *** https://example.com/v1?Key=***"
+
+
+def test_redact_sensitive_removes_quoted_mapping_values():
+    message = '{"api_key":"abc"} {\'token\': \'xyz\'}'
+    assert redact_sensitive(message) == '{"api_key":"***"} {\'token\': \'***\'}'
+
+
+def test_redact_sensitive_removes_quoted_authorization_values():
+    message = "{'Authorization': 'Bearer private-token'}"
+    assert redact_sensitive(message) == "{'Authorization': '***'}"
+
+
+def test_redact_sensitive_removes_userinfo_containing_at_signs():
+    assert redact_sensitive("https://user:p@ss@example.com/") == "https://example.com/"
