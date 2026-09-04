@@ -20,6 +20,9 @@ import yaml
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 
+sys.path.insert(0, str(SKILL_ROOT))
+from toolkit import env_config  # noqa: E402
+
 # Modules to check (import_name, package_name_for_pip)
 REQUIRED_MODULES = [
     ("markdown", "markdown"),
@@ -43,7 +46,7 @@ WEIGHTS = {
     "python_packages": 0,
     "config_file": 0,
     "wechat_credentials": 0,
-    "image_api_key": 0,
+    "image_providers": 0,
 }
 
 MAX_ANTI_AI_SCORE = sum(v for v in WEIGHTS.values() if v > 0)  # 13
@@ -89,7 +92,7 @@ def check_config():
         ))
         # Can't check fields if file missing
         checks.append(make_check("config", "wechat_credentials", "warn", "no config.yaml", impact="skip_publish"))
-        checks.append(make_check("config", "image_api_key", "warn", "no config.yaml", impact="skip_image_gen"))
+        checks.append(make_check("config", "image_providers", "warn", "no config.yaml", impact="skip_image_gen"))
         return checks
 
     checks.append(make_check("config", "config_file", "pass", "found"))
@@ -104,12 +107,28 @@ def check_config():
     else:
         checks.append(make_check("config", "wechat_credentials", "warn", "missing appid/secret", impact="skip_publish"))
 
-    # Image API key
-    image = cfg.get("image", {})
-    if image.get("api_key"):
-        checks.append(make_check("config", "image_api_key", "pass", "configured"))
+    # Image providers
+    entries = cfg.get("image", {}).get("providers") or []
+    available = [e.get("id") for e in entries if e.get("id")]
+    if not available:
+        checks.append(make_check(
+            "config", "image_providers", "fail",
+            "image.providers 为空或条目缺少 id",
+            impact="skip_image_gen",
+        ))
     else:
-        checks.append(make_check("config", "image_api_key", "warn", "missing → image generation will be skipped", impact="skip_image_gen"))
+        order = env_config.provider_order() or available
+        unknown = [i for i in order if i not in available]
+        if unknown:
+            checks.append(make_check(
+                "config", "image_providers", "fail",
+                f"IMAGE_PROVIDER_ORDER 含未知 id：{', '.join(unknown)}；"
+                f"可用：{', '.join(available)}",
+                impact="skip_image_gen",
+            ))
+        else:
+            checks.append(make_check(
+                "config", "image_providers", "pass", " → ".join(order)))
 
     return checks
 
