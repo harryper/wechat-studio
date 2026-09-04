@@ -45,6 +45,7 @@ build/
 docs/
 CLAUDE.md
 .superpowers/
+.worktrees/
 
 # IDE
 .vscode/
