@@ -90,6 +90,7 @@ def save_settings(settings: object, path: Path = SETTINGS_PATH) -> dict:
     raw = _validate_raw_settings(settings)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(destination.parent, 0o700)
     temp_path: str | None = None
     try:
         fd, temp_path = tempfile.mkstemp(

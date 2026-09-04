@@ -59,6 +59,21 @@ def test_save_is_atomic_private_and_round_trips_full_keys(tmp_path):
     assert list(tmp_path.glob("*.tmp")) == []
 
 
+def test_save_makes_existing_parent_private(tmp_path):
+    parent = tmp_path / "existing-data"
+    parent.mkdir(mode=0o755)
+    path = parent / "model-settings.json"
+    settings = {
+        "schema_version": 1,
+        "writing": {"provider_id": "openai", "api_key": "write-secret"},
+        "image": {"provider_id": "cliproxy", "api_key": "image-secret"},
+    }
+
+    model_settings.save_settings(settings, path)
+
+    assert os.stat(parent).st_mode & 0o777 == 0o700
+
+
 def test_bootstrap_imports_legacy_env_without_mutating_it(tmp_path):
     env = {
         "ANTHROPIC_BASE_URL": "https://api.minimaxi.com/anthropic",
