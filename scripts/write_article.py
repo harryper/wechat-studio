@@ -19,7 +19,6 @@ Strict mode: any API / parse failure raises — caller surfaces the error
 to the user. No fallback to a mock article.
 """
 
-import os
 import re
 import sys
 from pathlib import Path
@@ -31,7 +30,9 @@ import anthropic
 # ── 路径常量 ─────────────────────────────────────────────────────────
 SKILL_DIR = Path(__file__).resolve().parent.parent
 FRAMEWORKS_DOC = SKILL_DIR / "references" / "frameworks-academic.md"
-MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimaxi.com/anthropic"
+
+sys.path.insert(0, str(SKILL_DIR))  # scripts/ 直接运行时仓库根不在 sys.path
+from toolkit import env_config
 
 
 # ── 框架选择 ─────────────────────────────────────────────────────────
@@ -102,35 +103,11 @@ def _build_outline(topic: Dict[str, Any]) -> str:
 
 
 # ── LLM 客户端 ───────────────────────────────────────────────────────
-def _load_env_files() -> None:
-    """Load the project .env for direct Web/CLI runs outside Docker Compose."""
-    for env_path in (SKILL_DIR / ".env", Path.cwd() / ".env"):
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key and not os.environ.get(key):
-                os.environ[key] = value
-
-
 def _build_client() -> anthropic.Anthropic:
-    _load_env_files()
-    base_url = os.environ.get("ANTHROPIC_BASE_URL") or MINIMAX_ANTHROPIC_BASE_URL
-    api_key = (
-        os.environ.get("ANTHROPIC_AUTH_TOKEN")
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("MINIMAX_API_KEY")
+    return anthropic.Anthropic(
+        base_url=env_config.require("ANTHROPIC_BASE_URL", "写作使用的 Anthropic 兼容端点"),
+        api_key=env_config.require("ANTHROPIC_API_KEY", "写作端点的 API Key"),
     )
-    if not api_key:
-        raise RuntimeError(
-            "MINIMAX_API_KEY 未设置 — 无法调用 LLM。请在 .env 或环境变量中配置。"
-        )
-    return anthropic.Anthropic(base_url=base_url, auth_token=api_key)
 
 
 def _load_client_context(client: Optional[str]) -> str:
@@ -242,7 +219,7 @@ def write_article(
     error to the user, no silent fallback.
     """
     llm_client = _build_client()
-    chosen_model = model or os.environ.get("ANTHROPIC_MODEL", "MiniMax-M3")
+    chosen_model = model or env_config.require("ANTHROPIC_MODEL", "写作模型名")
     prompt = _build_prompt(topic, client=client)
 
     try:

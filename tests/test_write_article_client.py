@@ -1,3 +1,5 @@
+import pytest
+
 from scripts import write_article
 
 
@@ -19,17 +21,23 @@ class _LLMClient:
         self.messages = _Messages()
 
 
-def test_build_client_loads_minimax_key_from_project_env(tmp_path, monkeypatch):
-    (tmp_path / ".env").write_text("MINIMAX_API_KEY=test-minimax-key\n", encoding="utf-8")
-    monkeypatch.setattr(write_article, "SKILL_DIR", tmp_path)
+def test_build_client_requires_explicit_endpoint(monkeypatch, tmp_path):
+    monkeypatch.setattr(write_article.env_config, "SKILL_DIR", tmp_path)
+    monkeypatch.setattr(write_article.env_config, "_loaded", False)
     monkeypatch.chdir(tmp_path)
-    for key in (
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_API_KEY",
-        "MINIMAX_API_KEY",
-    ):
+    for key in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"):
         monkeypatch.delenv(key, raising=False)
+
+    with pytest.raises(write_article.env_config.ConfigError) as excinfo:
+        write_article._build_client()
+
+    assert "ANTHROPIC_BASE_URL" in str(excinfo.value)
+
+
+def test_build_client_passes_api_key_to_sdk(monkeypatch):
+    monkeypatch.setattr(write_article.env_config, "_loaded", True)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://example.test/anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     captured = {}
 
@@ -41,8 +49,9 @@ def test_build_client_loads_minimax_key_from_project_env(tmp_path, monkeypatch):
 
     write_article._build_client()
 
-    assert captured["base_url"] == "https://api.minimaxi.com/anthropic"
-    assert captured["auth_token"] == "test-minimax-key"
+    assert captured["base_url"] == "https://example.test/anthropic"
+    assert captured["api_key"] == "test-key"
+    assert "auth_token" not in captured
 
 
 def test_client_context_loads_style_and_playbook(tmp_path, monkeypatch):
