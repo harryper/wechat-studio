@@ -15,24 +15,26 @@ wechat:
   secret: "${WECHAT_SECRET}"
   author: ""  # 默认署名（可选）
 
-# AI 图片生成（多 provider 自动 fallback）
+# AI 图片生成（供应商顺序由 .env 的 IMAGE_PROVIDER_ORDER 决定）
 image:
   providers:
-    - provider: "openai"
+    - id: cliproxy
+      provider: "openai"
       api_key: "${CLIPROXY_IMAGE_API_KEY}"
       model: "gpt-image-2"
       base_url: "${CLIPROXY_IMAGE_BASE_URL:-http://127.0.0.1:8317/v1}"
-    - provider: "seedream"
+    - id: seedream
+      provider: "seedream"
       api_key: "${ARK_API_KEY}"
       model: "doubao-seedream-4-0-250828"
       base_url: "https://ark.cn-beijing.volces.com/api/v3"
-    - provider: "minimax"
+    - id: minimax
+      provider: "minimax"
       api_key: "${MINIMAX_API_KEY}"
       model: "image-01"
       base_url: "https://api.minimaxi.com/v1"
-    - provider: "openai"
-      # 官方 OpenAI 回退默认关闭；本机 cliproxyapi 配置不受此开关影响。
-      enabled: "${OPENAI_IMAGE_ENABLED:-false}"
+    - id: openai
+      provider: "openai"
       api_key: "${OPENAI_API_KEY}"
       model: "gpt-image-2"
       base_url: "https://api.openai.com/v1"

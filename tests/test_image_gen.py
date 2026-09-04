@@ -1,8 +1,8 @@
-"""Tests for toolkit/image_gen.py provider gating and fallback loop.
+"""Tests for toolkit/image_gen.py provider ordering and fallback loop.
 
-These guard the no-cost image pipeline: OpenAI stays off unless explicitly
-opted in, providers are tried in order, and the first successful API
-response is written unchanged (no OCR validator or quality retry).
+These guard the image pipeline: IMAGE_PROVIDER_ORDER decides which
+providers run and in what order, unknown ids fail loudly, and the first
+successful API response is written unchanged.
 """
 import base64
 import inspect
@@ -11,68 +11,85 @@ from pathlib import Path
 
 import pytest
 
-TOOLKIT_DIR = Path(__file__).resolve().parent.parent / "toolkit"
-if str(TOOLKIT_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOLKIT_DIR))
+SKILL_DIR = Path(__file__).resolve().parent.parent
+TOOLKIT_DIR = SKILL_DIR / "toolkit"
+for _path in (str(SKILL_DIR), str(TOOLKIT_DIR)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 import image_gen  # noqa: E402
+from toolkit import env_config  # noqa: E402
 
 
 def _config(*entries):
     return {"image": {"providers": list(entries)}}
 
 
-# ── provider enable/disable gating ────────────────────────────────────
-def test_disabled_provider_entry_is_skipped():
+def _entry(entry_id, provider, key="k"):
+    return {"id": entry_id, "provider": provider, "api_key": key}
+
+
+@pytest.fixture(autouse=True)
+def _no_order_env(monkeypatch):
+    monkeypatch.setattr(env_config, "_loaded", True)
+    monkeypatch.delenv("IMAGE_PROVIDER_ORDER", raising=False)
+
+
+def test_chain_falls_back_to_config_order_when_env_unset():
     chain = image_gen._build_provider_chain(_config(
-        {"provider": "minimax", "api_key": "k1"},
-        {"provider": "openai", "api_key": "k2", "enabled": False},
+        _entry("cliproxy", "openai"),
+        _entry("seedream", "seedream"),
     ))
-    assert [p.provider_key for p in chain] == ["minimax"]
+    assert [p.provider_key for p in chain] == ["openai", "seedream"]
 
 
-def test_disabled_provider_flag_defaults_to_false_without_opt_in(monkeypatch):
-    monkeypatch.delenv("OPENAI_IMAGE_ENABLED", raising=False)
-    config = image_gen._expand_env(_config(
-        {"provider": "minimax", "api_key": "k1"},
-        {"provider": "openai", "api_key": "k2",
-         "enabled": "${OPENAI_IMAGE_ENABLED:-false}"},
-    ))
-    chain = image_gen._build_provider_chain(config)
-    assert [p.provider_key for p in chain] == ["minimax"]
-
-
-def test_disabled_provider_flag_honours_explicit_opt_in(monkeypatch):
-    monkeypatch.setenv("OPENAI_IMAGE_ENABLED", "true")
-    config = image_gen._expand_env(_config(
-        {"provider": "minimax", "api_key": "k1"},
-        {"provider": "openai", "api_key": "k2",
-         "enabled": "${OPENAI_IMAGE_ENABLED:-false}"},
-    ))
-    chain = image_gen._build_provider_chain(config)
-    assert [p.provider_key for p in chain] == ["minimax", "openai"]
-
-
-@pytest.mark.parametrize("falsy", ["false", "False", "0", "no", "off", " off "])
-def test_disabled_provider_accepts_falsy_strings(falsy):
+def test_env_order_selects_and_reorders_providers(monkeypatch):
+    monkeypatch.setenv("IMAGE_PROVIDER_ORDER", "seedream,cliproxy")
     chain = image_gen._build_provider_chain(_config(
-        {"provider": "minimax", "api_key": "k1"},
-        {"provider": "openai", "api_key": "k2", "enabled": falsy},
+        _entry("cliproxy", "openai"),
+        _entry("seedream", "seedream"),
+        _entry("minimax", "minimax"),
     ))
-    assert [p.provider_key for p in chain] == ["minimax"]
+    assert [p.provider_key for p in chain] == ["seedream", "openai"]
 
 
-def test_disabled_provider_gating_leaves_entries_without_flag_enabled():
+def test_env_order_distinguishes_two_entries_sharing_a_provider(monkeypatch):
+    """config.yaml holds two `provider: openai` entries; only id can address them."""
+    monkeypatch.setenv("IMAGE_PROVIDER_ORDER", "openai")
     chain = image_gen._build_provider_chain(_config(
-        {"provider": "minimax", "api_key": "k1"},
-        {"provider": "openai", "api_key": "k2", "enabled": True},
+        {"id": "cliproxy", "provider": "openai", "api_key": "local",
+         "base_url": "http://127.0.0.1:8317/v1"},
+        {"id": "openai", "provider": "openai", "api_key": "official",
+         "base_url": "https://api.openai.com/v1"},
     ))
-    assert [p.provider_key for p in chain] == ["minimax", "openai"]
+    assert len(chain) == 1
+    assert chain[0]._base_url == "https://api.openai.com/v1"
+
+
+def test_unknown_id_raises_and_lists_available_ids(monkeypatch):
+    monkeypatch.setenv("IMAGE_PROVIDER_ORDER", "cliproxy,typo")
+    with pytest.raises(ValueError) as excinfo:
+        image_gen._build_provider_chain(_config(
+            _entry("cliproxy", "openai"),
+            _entry("seedream", "seedream"),
+        ))
+    message = str(excinfo.value)
+    assert "typo" in message
+    assert "cliproxy" in message and "seedream" in message
+
+
+def test_entry_without_id_raises():
+    with pytest.raises(ValueError) as excinfo:
+        image_gen._build_provider_chain(_config(
+            {"provider": "openai", "api_key": "k"},
+        ))
+    assert "id" in str(excinfo.value)
 
 
 def test_seedream_provider_is_available_in_provider_chain():
     chain = image_gen._build_provider_chain(_config(
         {
+            "id": "seedream",
             "provider": "seedream",
             "api_key": "ark-key",
             "model": "doubao-seedream-4-0-250828",

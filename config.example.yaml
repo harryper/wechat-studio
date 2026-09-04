@@ -36,47 +36,56 @@ image:
 
 # 方式二：多 provider 自动 fallback（推荐）
 # 按顺序尝试，第一个失败自动切换下一个，不需要全部填写
-# 每个条目可加 enabled 开关；值为 false / 0 / no / off 时跳过该 provider。
-# 下例先使用本机 cliproxyapi，再回退 Seedream 和 MiniMax。官方 OpenAI
-# 供应商默认关闭，不显式启用就不会直接调用官方接口。
+# 每个条目必须有唯一 id；.env 的 IMAGE_PROVIDER_ORDER 用 id 决定启用哪些、什么顺序。
+# 下例先使用本机 cliproxyapi，再回退 Seedream 和 MiniMax。
 # image:
 #   providers:
-#     - provider: openai
+#     - id: cliproxy
+#       provider: openai
 #       api_key: "${CLIPROXY_IMAGE_API_KEY}"
 #       model: "gpt-image-2"
 #       base_url: "${CLIPROXY_IMAGE_BASE_URL:-http://127.0.0.1:8317/v1}"
-#     - provider: seedream
+#     - id: seedream
+#       provider: seedream
 #       api_key: "${ARK_API_KEY}"
 #       model: "doubao-seedream-4-0-250828"
 #       base_url: "https://ark.cn-beijing.volces.com/api/v3"
-#     - provider: minimax
+#     - id: minimax
+#       provider: minimax
 #       api_key: "${MINIMAX_API_KEY}"
 #       model: "image-01"
-#     - provider: openai
-#       enabled: "${OPENAI_IMAGE_ENABLED:-false}"
+#     - id: openai
+#       provider: openai
 #       api_key: "${OPENAI_API_KEY}"
 #       model: "gpt-image-2"
-#     - provider: dashscope
+#     - id: dashscope
+#       provider: dashscope
 #       api_key: "${DASHSCOPE_API_KEY}"
 #       # model: "qwen-image-2.0-pro"
-#     - provider: jimeng
+#     - id: jimeng
+#       provider: jimeng
 #       api_key: "${JIMENG_ACCESS_KEY}"      # 即梦需要 access_key_id + secret_key
 #       secret_key: "${JIMENG_SECRET_KEY}"
 #       # model: "jimeng_t2i_v40"
-#     - provider: minimax
+#     - id: minimax_alt
+#       provider: minimax
 #       api_key: "${MINIMAX_API_KEY}"
 #       # model: "image-01"
-#     - provider: azure_openai
+#     - id: azure_openai
+#       provider: azure_openai
 #       api_key: "${AZURE_OPENAI_API_KEY}"
 #       base_url: "https://YOUR-RESOURCE.openai.azure.com/openai"  # 必填
 #       # deployment: "gpt-image-2"
-#     - provider: gemini
+#     - id: gemini
+#       provider: gemini
 #       api_key: "${GEMINI_API_KEY}"
 #       # model: "gemini-3.1-flash-image-preview"
-#     - provider: openrouter
+#     - id: openrouter
+#       provider: openrouter
 #       api_key: "${OPENROUTER_API_KEY}"
 #       # model: "google/gemini-3.1-flash-image-preview"
-#     - provider: replicate
+#     - id: replicate
+#       provider: replicate
 #       api_key: "${REPLICATE_API_TOKEN}"
 #       # model: "google/nano-banana-pro"
 
