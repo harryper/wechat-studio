@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from webapp import history, jobs, model_settings
+from webapp import history, jobs, model_settings, writing_prompt_settings
 
 
 app_module = importlib.import_module("webapp.app")
@@ -98,6 +98,9 @@ class IdCollectingParser(HTMLParser):
         super().__init__()
         self.ids = set()
         self.input_types = {}
+        self.textarea_placeholders = {}
+        self.textarea_values = {}
+        self._textarea_id = None
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
@@ -106,6 +109,18 @@ class IdCollectingParser(HTMLParser):
             self.ids.add(element_id)
             if tag == "input":
                 self.input_types[element_id] = values.get("type", "text")
+            elif tag == "textarea":
+                self._textarea_id = element_id
+                self.textarea_placeholders[element_id] = values.get("placeholder", "")
+                self.textarea_values[element_id] = ""
+
+    def handle_data(self, data):
+        if self._textarea_id:
+            self.textarea_values[self._textarea_id] += data
+
+    def handle_endtag(self, tag):
+        if tag == "textarea":
+            self._textarea_id = None
 
 
 @pytest.fixture
@@ -117,6 +132,8 @@ def web_client(tmp_path, monkeypatch, memory_d1):
         "snapshot_settings",
         lambda: copy.deepcopy(RESOLVED_SETTINGS_WITH_KEYS),
     )
+    prompt_path = tmp_path / "writing-prompt.json"
+    monkeypatch.setattr(writing_prompt_settings, "WRITING_PROMPT_PATH", prompt_path)
     client = app_module.app.test_client()
     client.set_cookie(app_module.COOKIE_NAME, app_module.COOKIE_VALUE)
     yield client, executor
@@ -154,6 +171,153 @@ def test_index_renders_model_settings_dialog_contract(web_client):
     assert parser.input_types["image-api-key"] == "password"
     assert "API Key 将完整返回给已登录浏览器" in rendered
     assert "仅影响之后提交的新任务" in rendered
+
+
+def test_index_renders_direct_article_creation_contract(web_client):
+    client, _ = web_client
+
+    response = client.get("/")
+    rendered = response.get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    assert {
+        "article-subject",
+        "article-key-points",
+        "article-origin",
+        "article-prompt",
+        "btn-save-prompt",
+        "btn-reset-prompt",
+        "advanced-settings",
+        "theme-description",
+    } <= parser.ids
+    assert "topic-search" not in parser.ids
+    assert "topic-center" not in parser.ids
+    assert "btn-preflight" not in parser.ids
+    assert "发布前检查" not in rendered
+    assert "待检查" not in rendered
+    assert "可发布" not in rendered
+    initial_prompt = parser.textarea_values["article-prompt"]
+    assert "微信公众号·知识科普" in initial_prompt
+    assert "{{文章主题}}" in initial_prompt
+
+
+def test_article_context_placeholders_explain_how_inputs_affect_writing(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    assert parser.textarea_placeholders["article-key-points"] == (
+        "填写希望文章重点回答的观点或问题，每行一条；AI 会优先围绕这些内容展开"
+    )
+    assert parser.textarea_placeholders["article-origin"] == (
+        "填写相关事实、案例、素材来源或写作限制；AI 会将其作为文章的参考依据"
+    )
+
+
+def test_index_explains_writing_style_presets(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    assert {
+        "writing-style-description",
+        "writing-style-name",
+        "writing-style-summary",
+        "writing-style-suitable",
+        "writing-style-method",
+        "writing-style-avoid",
+        "writing-style-source",
+    } <= parser.ids
+    assert "写作风格" in rendered
+    assert "理性科普｜清晰、严谨、通俗易读" in rendered
+    assert "现实思辨｜冷静、锋利、克制" in rendered
+    assert "青年共鸣｜温暖、有态度、不说教" in rendered
+    assert "仅影响文章写作，不影响图片和排版" in rendered
+
+
+def test_index_renders_lazy_history_drawer_contract(web_client):
+    client, _ = web_client
+
+    response = client.get("/")
+    rendered = response.get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    assert {
+        "btn-history",
+        "history-backdrop",
+        "history-drawer",
+        "history-list",
+        "btn-refresh-history",
+        "btn-close-history",
+    } <= parser.ids
+    assert "历史预览" not in rendered
+    assert "打开后加载历史记录" in rendered
+    assert "已回看历史" not in rendered
+    script = rendered.split("<script>", 1)[1].split("</script>", 1)[0]
+    startup = script.rsplit("updateThemeDescription();", 1)[1]
+    startup = startup.split("const activeJob", 1)[0]
+    assert "refreshHistory()" not in startup
+    assert "async function openHistory()" in script
+    open_history = script.split("async function openHistory()", 1)[1]
+    open_history = open_history.split("async function refreshHistory()", 1)[0]
+    assert "await refreshHistory();" in open_history
+
+
+def test_writing_prompt_api_saves_and_returns_default_template(web_client):
+    client, _ = web_client
+    template = "请围绕 {{文章主题}} 写作。\n要点：\n{{关键要点}}"
+
+    saved = client.put("/api/writing-prompt", json={"prompt": template})
+    loaded = client.get("/api/writing-prompt")
+
+    assert saved.status_code == 200
+    assert saved.get_json() == {"ok": True, "prompt": template}
+    assert loaded.get_json() == {
+        "ok": True,
+        "prompt": template,
+        "system_default": writing_prompt_settings.DEFAULT_PROMPT_TEMPLATE,
+    }
+    assert loaded.headers["Cache-Control"] == "private, no-store"
+
+
+def test_saved_writing_prompt_is_loaded_into_page_after_refresh(web_client):
+    client, _ = web_client
+    template = "刷新后继续使用 {{文章主题}}"
+    assert client.put("/api/writing-prompt", json={"prompt": template}).status_code == 200
+
+    response = client.get("/")
+    rendered = response.get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    assert parser.textarea_values["article-prompt"] == template
+    assert response.headers["Cache-Control"] == "private, no-store"
+
+
+def test_writing_prompt_api_rejects_empty_template(web_client):
+    client, _ = web_client
+
+    response = client.put("/api/writing-prompt", json={"prompt": "   "})
+
+    assert response.status_code == 400
+    assert "Prompt" in response.get_json()["error"]
+
+
+def test_index_localizes_internal_theme_names(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+
+    assert '>专业·清爽</option>' in rendered
+    assert '>科技·现代</option>' in rendered
+    assert '>暖色·编辑</option>' in rendered
+    assert '>professional-clean</option>' not in rendered
 
 
 def test_index_model_settings_focus_trap_redirects_external_and_dialog_focus(web_client):
@@ -472,6 +636,124 @@ def test_create_generation_job_returns_202(web_client):
     assert len(executor.calls) == 1
 
 
+def test_article_prompt_preview_uses_unsaved_user_input(web_client):
+    client, _ = web_client
+
+    response = client.post("/api/article-prompt", json={
+        "subject": "AI 如何改变个人知识管理",
+        "category": "效率工具",
+        "key_points": ["信息收集不等于知识形成", "输出会倒逼理解"],
+        "origin": "来自用户的实践记录",
+    })
+
+    assert response.status_code == 200
+    prompt = response.get_json()["prompt"]
+    assert "AI 如何改变个人知识管理" in prompt
+    assert "效率工具" in prompt
+    assert "信息收集不等于知识形成" in prompt
+    assert "来自用户的实践记录" in prompt
+    assert response.headers["Cache-Control"] == "private, no-store"
+
+
+def test_create_job_accepts_subject_and_persists_edited_prompt(web_client, memory_d1):
+    client, _ = web_client
+    edited_prompt = "  你是一名资深编辑。只根据用户提供的资料写作。\n"
+
+    response = client.post("/api/jobs", json={
+        "subject": "AI 如何改变个人知识管理",
+        "category": "效率工具",
+        "key_points": ["输出会倒逼理解"],
+        "origin": "用户访谈",
+        "prompt": edited_prompt,
+        "theme": "terracotta",
+        "client": "",
+    })
+
+    assert response.status_code == 202
+    job = jobs.get(response.get_json()["job_id"])
+    topic = memory_d1.topics[job["payload"]["topic"]["id"]]
+    assert job["payload"]["prompt"] == edited_prompt
+    assert topic["title"] == "AI 如何改变个人知识管理"
+    assert topic["context"]["prompt"] == edited_prompt
+
+
+def test_create_job_rebuilds_stale_default_prompt_from_current_subject(web_client):
+    client, _ = web_client
+
+    response = client.post("/api/jobs", json={
+        "subject": "新的文章主题",
+        "prompt": "仍然指向旧主题的默认 Prompt",
+        "prompt_mode": "default",
+    })
+
+    assert response.status_code == 202
+    job = jobs.get(response.get_json()["job_id"])
+    assert "新的文章主题" in job["payload"]["prompt"]
+    assert "仍然指向旧主题" not in job["payload"]["prompt"]
+
+
+def test_create_job_renders_user_prompt_template_with_current_subject(web_client):
+    client, _ = web_client
+
+    response = client.post("/api/jobs", json={
+        "subject": "动态注入的主题",
+        "key_points": ["动态要点"],
+        "origin": "动态背景",
+        "prompt": "主题：{{文章主题}}\n背景：{{背景资料}}\n{{关键要点}}",
+        "prompt_mode": "template",
+    })
+
+    assert response.status_code == 202
+    prompt = jobs.get(response.get_json()["job_id"])["payload"]["prompt"]
+    assert "主题：动态注入的主题" in prompt
+    assert "背景：动态背景" in prompt
+    assert "- 动态要点" in prompt
+    assert "{{" not in prompt
+
+
+@pytest.mark.parametrize("field,value", [
+    ("subject", 123),
+    ("category", []),
+    ("origin", {}),
+    ("client", False),
+    ("prompt", ["write"]),
+    ("key_points", False),
+])
+def test_article_input_endpoints_reject_non_text_fields(web_client, field, value):
+    client, _ = web_client
+    payload = {"subject": "合法主题", field: value}
+
+    preview = client.post("/api/article-prompt", json=payload)
+    create = client.post("/api/jobs", json=payload)
+
+    assert preview.status_code == 400
+    assert create.status_code == 400
+
+
+def test_default_prompt_mode_ignores_oversized_stale_browser_value(web_client):
+    client, _ = web_client
+
+    response = client.post("/api/jobs", json={
+        "subject": "以当前输入为准",
+        "prompt_mode": "default",
+        "prompt": "旧" * 40_001,
+    })
+
+    assert response.status_code == 202
+    job = jobs.get(response.get_json()["job_id"])
+    assert "以当前输入为准" in job["payload"]["prompt"]
+
+
+def test_create_job_rejects_empty_subject(web_client):
+    client, _ = web_client
+
+    response = client.post("/api/jobs", json={"subject": "   ", "prompt": "write"})
+
+    assert response.status_code == 400
+    assert response.get_json()["phase"] == "input"
+    assert "文章主题" in response.get_json()["error"]
+
+
 def test_create_job_passes_full_snapshot_only_to_executor(web_client, monkeypatch):
     client, executor = web_client
     monkeypatch.setattr(
@@ -542,6 +824,53 @@ def test_article_edit_saves_and_rerenders(web_client, tmp_path, monkeypatch):
     assert response.status_code == 200
     assert history.get(entry_id)["title"] == "新标题这是一个足够长的测试标题"
     assert "新正文" in (workdir / "article.md").read_text(encoding="utf-8")
+
+
+def test_removed_preflight_endpoint_returns_not_found(web_client, tmp_path):
+    client, _ = web_client
+    entry_id = history.add({
+        "topic_id": "kb-001",
+        "title": "无需检查",
+        "theme": "terracotta",
+        "workdir": str(tmp_path),
+        "status": "draft",
+    })
+
+    response = client.get(f"/api/history/{entry_id}/preflight")
+
+    assert response.status_code == 404
+    assert response.get_json() == {"error": "not found"}
+
+
+def test_publish_runs_without_preflight_gate(
+    web_client, tmp_path, monkeypatch, memory_d1
+):
+    client, _ = web_client
+    workdir = tmp_path / "publish"
+    workdir.mkdir()
+    (workdir / "article.md").write_text(
+        "# 可以直接发布的文章\n\n## 摘要\n\n正文", encoding="utf-8"
+    )
+    entry_id = history.add({
+        "topic_id": "kb-001",
+        "title": "可以直接发布的文章",
+        "theme": "terracotta",
+        "workdir": str(workdir),
+        "status": "draft",
+    })
+    monkeypatch.setattr(app_module, "_run_cli", lambda *args, **kwargs: {
+        "ok": True,
+        "returncode": 0,
+        "stdout": "Draft created! media_id: draft-123",
+        "stderr": "",
+    })
+
+    response = client.post("/api/publish", json={"history_id": entry_id})
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert "preflight" not in response.get_json()
+    assert memory_d1.publications[-1]["status"] == "pushed"
 
 
 def test_regenerate_single_image_queues_job(web_client, tmp_path):

@@ -13,8 +13,7 @@
   2. GET  /api/jobs/<id>        → 轮询阶段、进度和结果
   3. GET/PUT article/theme      → 在线编辑和换主题
   4. POST regenerate            → 异步重写文章或重生图片
-  5. GET preflight             → Blacklist、AI 痕迹、标题和图片检查
-  6. POST /api/publish          → 检查通过后用 workdir 创建微信草稿
+  5. POST /api/publish          → 用户确认后用 workdir 创建微信草稿
 
 cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
@@ -49,8 +48,15 @@ from toolkit.model_registry import (
     resolve_provider_config,
 )
 from toolkit.model_security import redact_sensitive
-
-from . import history, jobs, model_settings, pipeline, publications, topics
+from . import (
+    history,
+    jobs,
+    model_settings,
+    pipeline,
+    publications,
+    topics,
+    writing_prompt_settings,
+)
 from .d1_client import D1Error, client as d1
 from .render import (
     _write_preview_html,
@@ -73,10 +79,13 @@ COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 天
 
 # 公开端点：登录页和健康检查。静态资源在 /static 前缀。
 PUBLIC_PATHS = {"/login", "/api/health"}
-MODEL_SETTINGS_PATHS = {
+NO_STORE_PATHS = {
+    "/",
     "/api/model-settings",
     "/api/model-settings/test-writing",
     "/api/model-settings/test-image",
+    "/api/article-prompt",
+    "/api/writing-prompt",
 }
 
 # cli.py 子进程超时（秒）。publish 含外网上传 60s 足够。
@@ -86,10 +95,135 @@ JOB_EXECUTOR = ThreadPoolExecutor(
     thread_name_prefix="wechat-studio-job",
 )
 
+ARTICLE_SUBJECT_LIMIT = 120
+ARTICLE_CATEGORY_LIMIT = 60
+ARTICLE_ORIGIN_LIMIT = 2_000
+ARTICLE_PROMPT_LIMIT = 40_000
+ARTICLE_KEY_POINT_LIMIT = 500
+ARTICLE_KEY_POINTS_LIMIT = 20
+THEME_DISPLAY_NAMES = {
+    "elegant-rose": "精致·玫瑰",
+    "github": "GitHub 风格",
+    "minimal": "极简",
+    "professional-clean": "专业·清爽",
+    "tech-modern": "科技·现代",
+    "warm-editorial": "暖色·编辑",
+}
+WRITING_STYLE_PRODUCT_COPY = {
+    "maoxuan": {
+        "label": "现实思辨",
+        "summary": "冷静、锋利、克制",
+        "method": "观点明确，结合现实问题展开，减少概念堆砌",
+    },
+    "zhulv": {
+        "label": "青年共鸣",
+        "summary": "温暖、有态度、不说教",
+        "method": "从真实感受与生活场景切入，用故事和情绪建立共鸣",
+    },
+}
+DEFAULT_WRITING_STYLE = {
+    "id": "",
+    "label": "理性科普",
+    "summary": "清晰、严谨、通俗易读",
+    "suitable": "深度科普、概念解析、知识梳理",
+    "method": "先解释概念，再梳理背景与关键问题，兼顾专业性和可读性",
+    "avoid": "术语堆砌、空洞排比、未经验证的数据",
+    "source": "通用默认",
+}
+
+
+def _writing_style_presets() -> list[dict[str, str]]:
+    """Return product-facing copy for the available client style profiles."""
+    import yaml
+
+    presets = [DEFAULT_WRITING_STYLE.copy()]
+    clients_dir = SKILL_DIR / "clients"
+    if not clients_dir.exists():
+        return presets
+    for client_dir in sorted(path for path in clients_dir.iterdir() if path.is_dir()):
+        style_path = client_dir / "style.yaml"
+        product_copy = WRITING_STYLE_PRODUCT_COPY.get(client_dir.name)
+        if not style_path.exists() or not product_copy:
+            continue
+        try:
+            style = yaml.safe_load(style_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            log.warning("failed to load writing style %s: %s", client_dir.name, exc)
+            continue
+        topics = style.get("topics") if isinstance(style, dict) else []
+        blacklist = style.get("blacklist") if isinstance(style, dict) else []
+        presets.append({
+            "id": client_dir.name,
+            **product_copy,
+            "suitable": "、".join(str(item) for item in (topics or [])[:3]),
+            "avoid": "、".join(str(item) for item in (blacklist or [])),
+            "source": str(style.get("name") or client_dir.name),
+        })
+    return presets
+
 
 def _submit_model_job(job: dict, settings_snapshot: dict) -> None:
     """Queue a job with an isolated request-time model settings snapshot."""
     JOB_EXECUTOR.submit(pipeline.run_job, job["id"], copy.deepcopy(settings_snapshot))
+
+
+def _article_text(
+    data: dict,
+    field: str,
+    label: str,
+    limit: Optional[int],
+    *,
+    default: str = "",
+    preserve: bool = False,
+) -> str:
+    value = data.get(field, default)
+    if value is None:
+        value = default
+    if not isinstance(value, str):
+        raise ValueError(f"{label}必须是文本")
+    if limit is not None and len(value) > limit:
+        raise ValueError(f"{label}不能超过 {limit} 字")
+    return value if preserve else value.strip()
+
+
+def _article_form(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ValueError("请求内容必须是 JSON 对象")
+    key_points = data.get("key_points", [])
+    if key_points is None:
+        key_points = []
+    if not isinstance(key_points, list):
+        raise ValueError("关键要点格式不合法")
+    if len(key_points) > ARTICLE_KEY_POINTS_LIMIT:
+        raise ValueError(f"关键要点不能超过 {ARTICLE_KEY_POINTS_LIMIT} 条")
+    cleaned_points = []
+    for point in key_points:
+        if not isinstance(point, str):
+            raise ValueError("每条关键要点必须是文本")
+        if len(point) > ARTICLE_KEY_POINT_LIMIT:
+            raise ValueError(f"每条关键要点不能超过 {ARTICLE_KEY_POINT_LIMIT} 字")
+        if point.strip():
+            cleaned_points.append(point.strip())
+    prompt_mode = _article_text(data, "prompt_mode", "Prompt 模式", 16, default="custom")
+    if prompt_mode not in {"default", "custom", "template"}:
+        raise ValueError("Prompt 模式必须是 default、custom 或 template")
+    return {
+        "subject": _article_text(data, "subject", "文章主题", ARTICLE_SUBJECT_LIMIT),
+        "category": _article_text(
+            data, "category", "分类", ARTICLE_CATEGORY_LIMIT, default="自定义主题"
+        ) or "自定义主题",
+        "origin": _article_text(data, "origin", "背景资料", ARTICLE_ORIGIN_LIMIT),
+        "client": _article_text(data, "client", "客户名", 128),
+        "prompt": _article_text(
+            data,
+            "prompt",
+            "Prompt",
+            ARTICLE_PROMPT_LIMIT if prompt_mode != "default" else None,
+            preserve=True,
+        ),
+        "prompt_mode": prompt_mode,
+        "key_points": cleaned_points,
+    }
 
 # ── Flask 应用 ───────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -138,9 +272,9 @@ def _settings_error(exc: object, submitted: object, status: int = 400) -> Respon
 
 
 @app.after_request
-def prevent_model_settings_caching(response: Response) -> Response:
-    """Keep secrets and test results out of browser and proxy caches."""
-    if request.path in MODEL_SETTINGS_PATHS:
+def prevent_sensitive_response_caching(response: Response) -> Response:
+    """Keep secrets, generated prompts, and test results out of caches."""
+    if request.path in NO_STORE_PATHS:
         return _set_private_no_store(response)
     return response
 
@@ -224,20 +358,39 @@ def logout():
 
 @app.route("/")
 def index():
-    # 把可用主题和语料列表注入页面，避免前端硬编码。
+    # 把排版主题的产品名称、说明和配色一起注入页面，避免暴露内部文件名。
     try:
         sys.path.insert(0, str(TOOLKIT_DIR))
-        from theme import list_themes  # type: ignore
-        themes = list_themes()
+        from theme import list_themes, load_theme  # type: ignore
+        themes = [
+            {
+                "id": theme_id,
+                "name": THEME_DISPLAY_NAMES.get(theme_id, loaded.name),
+                "description": loaded.description,
+                "primary": loaded.colors.get("secondary") or loaded.colors.get("primary") or "#ff4d6d",
+                "background": loaded.colors.get("background") or "#ffffff",
+            }
+            for theme_id in list_themes()
+            for loaded in [load_theme(theme_id)]
+        ]
     except Exception as e:
         log.error("failed to list themes: %s", e)
-        themes = ["terracotta"]
-    clients_dir = SKILL_DIR / "clients"
-    clients = sorted(
-        p.name for p in clients_dir.iterdir()
-        if p.is_dir() and (p / "style.yaml").exists()
-    ) if clients_dir.exists() else []
-    return render_template("index.html", themes=themes, clients=clients)
+        themes = [{
+            "id": "terracotta", "name": "赤陶", "description": "温暖克制的知识内容排版",
+            "primary": "#C86442", "background": "#ffffff",
+        }]
+    writing_styles = _writing_style_presets()
+    try:
+        default_prompt = writing_prompt_settings.load_prompt()
+    except Exception as exc:
+        log.error("failed to load writing prompt: %s", exc)
+        default_prompt = writing_prompt_settings.DEFAULT_PROMPT_TEMPLATE
+    return render_template(
+        "index.html",
+        themes=themes,
+        writing_styles=writing_styles,
+        default_prompt=default_prompt,
+    )
 
 
 @app.route("/api/health")
@@ -285,6 +438,30 @@ def api_model_settings():
         return _settings_error(exc, submitted)
     except Exception as exc:
         return _settings_error(exc, submitted, 500)
+
+
+@app.route("/api/writing-prompt", methods=["GET", "PUT"])
+def api_writing_prompt():
+    """Load or persist the reusable writing Prompt template."""
+    if request.method == "GET":
+        try:
+            return _model_settings_json({
+                "ok": True,
+                "prompt": writing_prompt_settings.load_prompt(),
+                "system_default": writing_prompt_settings.DEFAULT_PROMPT_TEMPLATE,
+            })
+        except Exception as exc:
+            return _model_settings_json({"ok": False, "error": str(exc)}, 500)
+
+    data = request.get_json(silent=True)
+    submitted = data.get("prompt") if isinstance(data, dict) else None
+    try:
+        saved = writing_prompt_settings.save_prompt(submitted)
+        return _model_settings_json({"ok": True, "prompt": saved})
+    except ValueError as exc:
+        return _model_settings_json({"ok": False, "error": str(exc)}, 400)
+    except Exception as exc:
+        return _model_settings_json({"ok": False, "error": str(exc)}, 500)
 
 
 @app.route("/api/model-settings/test-writing", methods=["POST"])
@@ -373,26 +550,96 @@ def api_topics():
     return jsonify({"ok": True, "topic": topic}), 201
 
 
+@app.route("/api/article-prompt", methods=["POST"])
+def api_article_prompt():
+    """Build the exact default writing prompt from unsaved form values."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        article = _article_form(data)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    if not article["subject"]:
+        return jsonify({"ok": False, "error": "文章主题不能为空"}), 400
+    client = article["client"]
+    if client and not re.fullmatch(r"[A-Za-z0-9_-]+", client):
+        return jsonify({"ok": False, "error": "客户名格式不合法"}), 400
+    topic = {
+        "id": "user-input",
+        "title": article["subject"],
+        "category": article["category"],
+        "origin": article["origin"],
+        "key_points": article["key_points"],
+        "caution": "no",
+    }
+    template = article["prompt"] or writing_prompt_settings.load_prompt()
+    return jsonify({
+        "ok": True,
+        "prompt": writing_prompt_settings.render_prompt(
+            template, topic, client=client or None
+        ),
+    })
+
+
 @app.route("/api/jobs", methods=["POST"])
 @app.route("/api/preview", methods=["POST"])
 def api_create_job():
     """Queue a full generation job and return immediately with a job id."""
     data = request.get_json(force=True, silent=True) or {}
-    topic_id = (data.get("topic_id") or "").strip()
-    theme = (data.get("theme") or "terracotta").strip() or "terracotta"
-    client = (data.get("client") or "").strip()
+    try:
+        article = _article_form(data)
+        topic_id = _article_text(data, "topic_id", "topic_id", 200)
+        theme = _article_text(data, "theme", "排版风格", 100, default="terracotta") or "terracotta"
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc), "phase": "input"}), 400
+    subject = article["subject"]
+    client = article["client"]
+    prompt = article["prompt"]
 
-    if not topic_id:
-        return jsonify({"ok": False, "error": "topic_id 不能为空",
+    if not topic_id and not subject:
+        return jsonify({"ok": False, "error": "文章主题不能为空",
                         "phase": "input"}), 400
-
-    topic = topics.get_topic(topic_id)
-    if not topic:
-        return jsonify({"ok": False, "error": f"未找到主题 {topic_id}",
-                        "phase": "input"}), 404
 
     if client and not re.fullmatch(r"[A-Za-z0-9_-]+", client):
         return jsonify({"ok": False, "error": "客户名格式不合法", "phase": "input"}), 400
+    if subject:
+        category = article["category"]
+        origin = article["origin"]
+        cleaned_points = article["key_points"]
+        prompt_topic = {
+            "id": "user-input",
+            "title": subject,
+            "category": category,
+            "origin": origin,
+            "key_points": cleaned_points,
+            "caution": "no",
+        }
+        if article["prompt_mode"] == "default" or not prompt.strip():
+            prompt = writing_prompt_settings.render_prompt(
+                writing_prompt_settings.load_prompt(),
+                prompt_topic,
+                client=client or None,
+            )
+        elif article["prompt_mode"] == "template":
+            prompt = writing_prompt_settings.render_prompt(
+                prompt, prompt_topic, client=client or None
+            )
+        topic = topics.create_topic({
+            "title": subject,
+            "category": category,
+            "client": client,
+            "source": "custom",
+            "context": {
+                "origin": origin,
+                "key_points": cleaned_points,
+                "caution": "no",
+                "prompt": prompt,
+            },
+        })
+    else:
+        topic = topics.get_topic(topic_id)
+        if not topic:
+            return jsonify({"ok": False, "error": f"未找到主题 {topic_id}",
+                            "phase": "input"}), 404
     settings_snapshot = model_settings.snapshot_settings()
     entry_id = history.add({
         "topic_id": topic["id"],
@@ -407,6 +654,7 @@ def api_create_job():
             "topic": topic,
             "theme": theme,
             "client": client,
+            "prompt": prompt,
             "history_id": entry_id,
             "models": model_settings.audit_settings(settings_snapshot),
         })
@@ -480,12 +728,11 @@ def api_history_article(entry_id: int):
     md_path.write_text(markdown.rstrip() + "\n", encoding="utf-8")
     try:
         _write_preview_html(Path(entry["workdir"]), entry["theme"])
-        assessment = pipeline.assess_markdown(markdown, entry.get("client") or None)
+        title = pipeline.extract_title(markdown)
         updated = history.update(entry_id, {
-            "title": assessment["title"] or entry.get("title"),
-            "assessment": assessment,
+            "title": title or entry.get("title"),
             "markdown": markdown.rstrip() + "\n",
-            "status": "review",
+            "status": "draft",
         })
     except Exception as exc:
         md_path.write_text(previous_markdown, encoding="utf-8")
@@ -539,17 +786,6 @@ def api_history_regenerate(entry_id: int):
         raise
     _submit_model_job(job, settings_snapshot)
     return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
-
-
-@app.route("/api/history/<int:entry_id>/preflight", methods=["GET"])
-def api_history_preflight(entry_id: int):
-    entry = history.get(entry_id)
-    if entry is None:
-        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
-    readiness = pipeline.preflight(entry)
-    if entry.get("status") not in {"pushed", "published", "archived", "generating", "failed"}:
-        history.update(entry_id, {"status": "ready" if readiness["publishable"] else "review"})
-    return jsonify({"ok": True, **readiness})
 
 
 # MIME types for /api/history/<id>/images/
@@ -665,15 +901,6 @@ def api_publish():
                         "error": "article.md 缺失 — workdir 可能已被清理",
                         "phase": "session"}), 500
 
-    readiness = pipeline.preflight(entry)
-    if not readiness["publishable"]:
-        return jsonify({
-            "ok": False,
-            "error": "发布前检查未通过",
-            "phase": "preflight",
-            "preflight": readiness,
-        }), 409
-
     cli_result = _run_cli(
         ["publish", str(md_path), "--theme", theme],
         env=os.environ.copy(),
@@ -703,7 +930,6 @@ def api_publish():
                 "title": entry.get("title"),
             },
             "theme": theme,
-            "preflight": readiness,
         }
     )
 

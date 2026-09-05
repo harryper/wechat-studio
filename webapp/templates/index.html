@@ -31,7 +31,7 @@
   }
   .layout {
     display: grid;
-    grid-template-columns: 360px 1fr;
+    grid-template-columns: 400px 1fr;
     grid-template-rows: auto 1fr;
     grid-template-areas:
       "header header"
@@ -106,39 +106,78 @@
   }
   input:focus, select:focus, textarea:focus { outline: 1px solid var(--primary); }
   .form-group { margin-bottom: 14px; }
-  .topic-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .topic-category-filter { grid-column: 1 / -1; }
-  .topic-center {
-    margin-top: 8px;
-    max-height: 250px;
-    overflow-y: auto;
+  .creation-heading { font-size: 18px; line-height: 1.35; margin-bottom: 5px; }
+  .creation-subtitle { color: var(--text-3); font-size: 12px; margin-bottom: 18px; }
+  .required-mark { color: var(--primary); }
+  .field-help { margin-top: 5px; color: var(--text-3); font-size: 11px; }
+  #article-subject { padding: 11px 12px; font-size: 15px; }
+  #article-key-points { min-height: 76px; resize: vertical; }
+  .prompt-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .prompt-heading label { margin: 0; }
+  .prompt-state { color: var(--text-3); font-size: 10px; }
+  #article-prompt {
+    min-height: 220px;
+    margin-top: 7px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .text-button { border: 0; background: transparent; color: var(--primary-hover); padding: 3px 0; }
+  .text-button:hover { background: transparent; color: var(--text-1); }
+  .prompt-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .prompt-save-button { padding: 6px 9px; font-size: 11px; }
+  details.advanced-settings {
+    margin: 15px 0;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--surface-2);
+    background: rgba(255,255,255,0.015);
   }
-  .topic-card {
-    padding: 9px 10px;
-    border-bottom: 1px solid var(--border);
+  details.advanced-settings summary {
     cursor: pointer;
+    padding: 10px 12px;
+    color: var(--text-2);
+    font-size: 12px;
+    user-select: none;
   }
-  .topic-card:last-child { border-bottom: 0; }
-  .topic-card:hover { background: var(--surface-3); }
-  .topic-card.selected { background: rgba(255, 77, 109, 0.13); box-shadow: inset 3px 0 var(--primary); }
-  .topic-card-title { font-size: 13px; color: var(--text-1); line-height: 1.4; }
-  .topic-card-meta { margin-top: 3px; font-size: 11px; color: var(--text-3); }
-  .topic-state { margin-left: 5px; color: var(--warning); }
-  .topic-center-empty { padding: 16px 10px; text-align: center; font-size: 12px; color: var(--text-3); }
-  .custom-topic-form {
-    display: none;
-    margin-top: 10px;
-    padding: 10px;
+  .advanced-settings-body { padding: 2px 12px 12px; }
+  .writing-style-description {
+    margin-top: 8px;
+    padding: 11px 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface-2);
+    font-size: 11px;
+    color: var(--text-2);
   }
-  .custom-topic-form.show { display: block; }
-  .custom-topic-form input, .custom-topic-form textarea { margin-bottom: 8px; }
-  .custom-topic-form textarea { min-height: 70px; resize: vertical; }
+  .writing-style-title { display: flex; align-items: baseline; gap: 7px; margin-bottom: 7px; }
+  .writing-style-title strong { color: var(--text-1); font-size: 13px; }
+  .writing-style-title span { color: var(--primary-hover); }
+  .writing-style-row { margin-top: 4px; line-height: 1.5; }
+  .writing-style-row b { color: var(--text-2); font-weight: 600; }
+  .writing-style-scope {
+    margin-top: 9px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    color: var(--text-3);
+  }
+  .theme-description {
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    margin-top: 8px;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .theme-swatch {
+    width: 28px;
+    height: 20px;
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: linear-gradient(135deg, var(--theme-bg) 0 50%, var(--theme-color) 50% 100%);
+  }
   button {
     background: var(--surface-3);
     color: var(--text-1);
@@ -356,25 +395,55 @@
     min-height: 16px;
   }
   .topic-meta strong { color: var(--text-2); font-weight: 500; }
-  h2.section-label {
-    font-size: 13px;
-    color: var(--text-2);
-    font-weight: 600;
-    margin-bottom: 10px;
-  }
   .pipeline-note {
     margin: -2px 0 16px;
     color: var(--text-3);
     font-size: 11px;
     line-height: 1.55;
   }
-  .history-section { margin-top: 24px; }
+  .history-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.52);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+  }
+  .history-backdrop.show { opacity: 1; visibility: visible; }
+  .history-drawer {
+    width: min(400px, 100vw);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+    border-left: 1px solid var(--border);
+    box-shadow: -18px 0 55px rgba(0, 0, 0, 0.34);
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    outline: none;
+  }
+  .history-backdrop.show .history-drawer { transform: translateX(0); }
+  .history-drawer-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-drawer-header h2 { font-size: 17px; font-weight: 600; }
+  .history-drawer-header p { margin-top: 3px; color: var(--text-3); font-size: 11px; }
+  .history-drawer-actions { display: flex; align-items: center; gap: 6px; }
+  .history-drawer-actions button { padding: 6px 9px; }
+  .history-drawer-actions .close-button { font-size: 19px; line-height: 1; }
+  .history-drawer-body { min-height: 0; flex: 1; overflow-y: auto; padding: 14px; }
   .history-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 320px;
-    overflow-y: auto;
   }
   .history-item {
     background: var(--surface-2);
@@ -450,8 +519,9 @@
     color: var(--text-3);
     font-size: 12px;
     text-align: center;
-    padding: 10px;
+    padding: 36px 10px;
   }
+  .history-retry { margin-top: 12px; }
   @media (max-width: 900px) {
     .layout {
       grid-template-columns: 1fr;
@@ -483,6 +553,7 @@
     .settings-backdrop { padding: 8px; }
     .settings-dialog { width: min(680px, calc(100vw - 16px)); max-height: calc(100vh - 16px); }
     .settings-dialog-header, .settings-dialog-body, .settings-dialog-footer { padding-left: 14px; padding-right: 14px; }
+    .history-drawer { width: 100%; border-left: 0; }
   }
 </style>
 </head>
@@ -491,6 +562,7 @@
     <header>
       <h1><span class="emoji">📝</span>微信公众号工作台</h1>
       <div class="actions">
+        <button class="header-action" id="btn-history" type="button">🕘 历史记录</button>
         <button class="header-action" id="btn-model-settings" type="button">⚙ 设置</button>
         <a href="/api/health" target="_blank">健康检查</a>
         <a href="/logout">退出</a>
@@ -498,71 +570,89 @@
     </header>
 
     <aside>
-      <h2 class="section-label">知识库长文</h2>
-      <p class="pipeline-note">选题 → 2500–4000 字框架写作 → 封面 + 4 张内文图 → 预览。<br>生成在后台执行，可安全离开页面后再回看历史。</p>
+      <h2 class="creation-heading">创作新文章</h2>
+      <p class="creation-subtitle">输入一个主题，AI 将完成长文、配图和公众号排版。</p>
 
       <div class="form-group">
-        <label for="topic-search">选题中心</label>
-        <input id="topic-search" type="search" placeholder="搜索标题或主题 ID">
-        <div class="topic-filters">
-          <select id="topic-status" aria-label="主题状态">
-            <option value="available">未创作</option>
-            <option value="drafted">已创作</option>
-            <option value="pushed">已推送</option>
-            <option value="published">已发布</option>
-            <option value="all">全部状态</option>
-          </select>
-          <select id="topic-source" aria-label="主题来源">
-            <option value="all">全部来源</option>
-            <option value="corpus">知识库</option>
-            <option value="custom">自定义</option>
-            <option value="hotspot">热点</option>
-            <option value="import">导入</option>
-          </select>
-          <select id="topic-category" class="topic-category-filter" aria-label="主题分类">
-            <option value="all">全部分类</option>
-          </select>
+        <label for="article-subject">文章主题 <span class="required-mark">*</span></label>
+        <input id="article-subject" maxlength="120" autocomplete="off"
+               placeholder="例如：AI 如何改变个人知识管理">
+        <div class="field-help">一句话描述你想写什么。</div>
+      </div>
+
+      <div class="form-group">
+        <label for="article-key-points">关键要点（可选）</label>
+        <textarea id="article-key-points" placeholder="填写希望文章重点回答的观点或问题，每行一条；AI 会优先围绕这些内容展开"></textarea>
+      </div>
+
+      <div class="form-group">
+        <div class="prompt-heading">
+          <label for="article-prompt">写作 Prompt</label>
+          <span class="prompt-state" id="prompt-state">默认 Prompt · 可编辑并保存</span>
         </div>
-        <input id="topic_id" type="hidden">
-        <div class="topic-center" id="topic-center">
-          <div class="topic-center-empty">正在加载选题…</div>
+        <textarea id="article-prompt" maxlength="40000"
+                  placeholder="输入写作 Prompt 模板">{{ default_prompt }}</textarea>
+        <div class="prompt-heading">
+          <span class="field-help">生成时自动替换 {{ '{{文章主题}}' }}、{{ '{{关键要点}}' }}、{{ '{{背景资料}}' }} 等变量。</span>
+          <span class="prompt-actions">
+            <button class="text-button" id="btn-reset-prompt" type="button">恢复系统默认</button>
+            <button class="primary prompt-save-button" id="btn-save-prompt" type="button">保存为默认 Prompt</button>
+          </span>
         </div>
-        <div class="actions-row">
-          <button class="full" id="btn-new-topic" type="button">＋ 自定义主题</button>
-        </div>
-        <div class="custom-topic-form" id="custom-topic-form">
-          <input id="custom-topic-title" placeholder="主题标题（必填）" maxlength="120">
-          <input id="custom-topic-category" placeholder="分类，例如：行业观察" maxlength="60">
-          <textarea id="custom-topic-points" placeholder="关键要点，每行一条"></textarea>
-          <input id="custom-topic-origin" placeholder="背景或素材来源（可选）" maxlength="300">
-          <div class="actions-row">
-            <button id="btn-save-topic" class="primary" type="button">保存并选择</button>
-            <button id="btn-cancel-topic" type="button">取消</button>
+      </div>
+
+      <details class="advanced-settings" id="advanced-settings">
+        <summary>更多设置</summary>
+        <div class="advanced-settings-body">
+          <div class="form-group">
+            <label for="article-origin">背景资料（可选）</label>
+            <textarea id="article-origin" maxlength="2000" placeholder="填写相关事实、案例、素材来源或写作限制；AI 会将其作为文章的参考依据"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="client">写作风格</label>
+            <select id="client">
+              {% for style in writing_styles %}
+              <option value="{{ style.id }}"
+                      data-label="{{ style.label }}"
+                      data-summary="{{ style.summary }}"
+                      data-suitable="{{ style.suitable }}"
+                      data-method="{{ style.method }}"
+                      data-avoid="{{ style.avoid }}"
+                      data-source="{{ style.source }}">{{ style.label }}｜{{ style.summary }}</option>
+              {% endfor %}
+            </select>
+            <div class="writing-style-description" id="writing-style-description">
+              <div class="writing-style-title">
+                <strong id="writing-style-name">理性科普</strong>
+                <span id="writing-style-summary">清晰、严谨、通俗易读</span>
+              </div>
+              <div class="writing-style-row"><b>适合：</b><span id="writing-style-suitable">深度科普、概念解析、知识梳理</span></div>
+              <div class="writing-style-row"><b>写作方式：</b><span id="writing-style-method">先解释概念，再梳理背景与关键问题，兼顾专业性和可读性</span></div>
+              <div class="writing-style-row"><b>避免：</b><span id="writing-style-avoid">术语堆砌、空洞排比、未经验证的数据</span></div>
+              <div class="writing-style-scope">仅影响文章写作，不影响图片和排版 · 风格来源：<span id="writing-style-source">通用默认</span></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="theme">排版风格</label>
+            <select id="theme">
+              {% for theme in themes %}
+              <option value="{{ theme.id }}"
+                      data-description="{{ theme.description }}"
+                      data-primary="{{ theme.primary }}"
+                      data-background="{{ theme.background }}"
+                      {% if theme.id == 'terracotta' %}selected{% endif %}>{{ theme.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="theme-description" id="theme-description">
+              <span class="theme-swatch" id="theme-swatch"></span>
+              <span id="theme-description-text"></span>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div class="form-group">
-        <label for="client">客户风格（可选）</label>
-        <select id="client">
-          <option value="">通用知识库</option>
-          {% for client in clients %}
-          <option value="{{ client }}">{{ client }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label for="theme">主题样式</label>
-        <select id="theme">
-          {% for t in themes %}
-          <option value="{{ t }}" {% if t == 'terracotta' %}selected{% endif %}>{{ t }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      </details>
 
       <div class="actions-row">
-        <button class="primary full" id="btn-preview">生成预览</button>
+        <button class="primary full" id="btn-preview">生成文章预览</button>
       </div>
 
       <div class="topic-meta" id="topic-meta">&nbsp;</div>
@@ -572,18 +662,11 @@
       </div>
 
       <div class="actions-row">
-        <button id="btn-preflight" disabled>发布前检查</button>
         <button id="btn-edit" disabled>编辑 Markdown</button>
       </div>
 
       <div class="status" id="status"></div>
 
-      <div class="history-section">
-        <h2 class="section-label">历史预览</h2>
-        <div class="history-list" id="history-list">
-          <div class="history-empty">暂无历史记录</div>
-        </div>
-      </div>
     </aside>
 
     <main>
@@ -600,10 +683,10 @@
           <option value="inline-4">内文图 4</option>
         </select>
         <button id="btn-regen-image">重生选中图</button>
-        <button id="btn-apply-theme">应用当前主题</button>
+        <button id="btn-apply-theme">应用排版风格</button>
       </div>
       <div class="empty-state" id="empty-state">
-        在左侧选择主题，点击「生成预览」开始<br>
+        在左侧输入文章主题，点击「生成文章预览」开始<br>
         <small>写作约 30-180 秒（调用 LLM）+ 配图</small>
       </div>
       <textarea id="markdown-editor" class="editor" spellcheck="false"></textarea>
@@ -617,6 +700,26 @@
       <div class="modal-body" id="modal-body"></div>
       <div class="modal-footer"><button id="modal-ok" type="button">确定</button></div>
     </div>
+  </div>
+
+  <div class="history-backdrop" id="history-backdrop" aria-hidden="true">
+    <section class="history-drawer" id="history-drawer" role="dialog" aria-modal="true" aria-labelledby="history-title" tabindex="-1">
+      <div class="history-drawer-header">
+        <div>
+          <h2 id="history-title">历史记录</h2>
+          <p>选择一篇文章，在主区域继续预览或编辑。</p>
+        </div>
+        <div class="history-drawer-actions">
+          <button id="btn-refresh-history" type="button">刷新</button>
+          <button class="close-button" id="btn-close-history" type="button" aria-label="关闭历史记录">×</button>
+        </div>
+      </div>
+      <div class="history-drawer-body">
+        <div class="history-list" id="history-list" aria-live="polite">
+          <div class="history-empty">打开后加载历史记录</div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="settings-backdrop" id="model-settings-backdrop" aria-hidden="true">
@@ -689,23 +792,25 @@
   <script>
   (function () {
     const $ = (id) => document.getElementById(id);
-    const topicSelect = $('topic_id');
-    const topicSearch = $('topic-search');
-    const topicStatus = $('topic-status');
-    const topicSource = $('topic-source');
-    const topicCategory = $('topic-category');
-    const topicCenter = $('topic-center');
+    const subjectInput = $('article-subject');
+    const keyPointsInput = $('article-key-points');
+    const originInput = $('article-origin');
+    const promptInput = $('article-prompt');
+    const promptState = $('prompt-state');
     const clientSelect = $('client');
     const themeInput = $('theme');
     const btnPreview = $('btn-preview');
     const btnPublish = $('btn-publish');
-    const btnPreflight = $('btn-preflight');
     const btnEdit = $('btn-edit');
     const statusEl = $('status');
     const metaEl = $('topic-meta');
     const frame = $('preview-frame');
     const empty = $('empty-state');
     const historyList = $('history-list');
+    const historyBackdrop = $('history-backdrop');
+    const historyDrawer = $('history-drawer');
+    const historyTrigger = $('btn-history');
+    const historyRefresh = $('btn-refresh-history');
     const toolbar = $('work-toolbar');
     const editor = $('markdown-editor');
     const settingsBackdrop = $('model-settings-backdrop');
@@ -724,8 +829,8 @@
 
     // currentPreview: {history_id, topic, theme, html_url, image_mode}
     let currentPreview = null;
-    let selectedTopic = null;
-    let topicSearchTimer = null;
+    let historyTriggerFocus = null;
+    let historyLoadToken = 0;
 
     const escapeHtml = (value) => String(value == null ? '' : value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -734,7 +839,7 @@
     const topicStateNames = {
       available: '未创作', drafted: '已创作', pushed: '已推送',
       published: '已发布', archived: '已归档', generating: '生成中',
-      draft: '草稿', review: '待检查', ready: '可发布', failed: '失败'
+      draft: '草稿', review: '草稿', ready: '草稿', failed: '失败'
     };
 
     function settingsField(kind, name) {
@@ -1044,94 +1149,73 @@
       }
     }
 
-    function renderTopics(items) {
-      topicCenter.innerHTML = '';
-      if (!items.length) {
-        topicCenter.innerHTML = '<div class="topic-center-empty">没有符合条件的主题，可以新建自定义主题</div>';
-        topicSelect.value = '';
-        selectedTopic = null;
-        return;
-      }
-      for (const topic of items) {
-        const card = document.createElement('div');
-        card.className = 'topic-card';
-        card.dataset.id = topic.id;
-        if (topicSelect.value === topic.id) card.classList.add('selected');
-        card.innerHTML =
-          '<div class="topic-card-title">' + escapeHtml(topic.title) + '</div>' +
-          '<div class="topic-card-meta">' + escapeHtml(topic.id) + ' · ' +
-          escapeHtml(topic.category || '未分类') + ' · ' + escapeHtml(topic.source) +
-          '<span class="topic-state">' + escapeHtml(topicStateNames[topic.status] || topic.status) + '</span></div>';
-        card.addEventListener('click', () => {
-          selectedTopic = topic;
-          topicSelect.value = topic.id;
-          for (const item of topicCenter.querySelectorAll('.topic-card')) item.classList.remove('selected');
-          card.classList.add('selected');
-          metaEl.textContent = topic.id + ' · ' + topic.title + ' · ' + (topic.category || '未分类');
-        });
-        topicCenter.appendChild(card);
-      }
-      if (!topicSelect.value || !items.some(item => item.id === topicSelect.value)) {
-        topicCenter.querySelector('.topic-card').click();
-      }
+    function articleFormPayload() {
+      return {
+        subject: subjectInput.value.trim(),
+        category: '自定义主题',
+        key_points: keyPointsInput.value.split('\n').map(value => value.trim()).filter(Boolean),
+        origin: originInput.value.trim(),
+        client: clientSelect.value,
+      };
     }
 
-    function updateCategoryOptions(items) {
-      const current = topicCategory.value;
-      const categories = [...new Set(items.map(item => item.category).filter(Boolean))].sort();
-      topicCategory.innerHTML = '<option value="all">全部分类</option>' +
-        categories.map(value => '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + '</option>').join('');
-      if (categories.includes(current)) topicCategory.value = current;
+    function updateWritingStyleDescription() {
+      const option = clientSelect.selectedOptions[0];
+      if (!option) return;
+      $('writing-style-name').textContent = option.dataset.label || '';
+      $('writing-style-summary').textContent = option.dataset.summary || '';
+      $('writing-style-suitable').textContent = option.dataset.suitable || '';
+      $('writing-style-method').textContent = option.dataset.method || '';
+      $('writing-style-avoid').textContent = option.dataset.avoid || '';
+      $('writing-style-source').textContent = option.dataset.source || '';
     }
 
-    async function loadTopics() {
-      topicCenter.innerHTML = '<div class="topic-center-empty">正在加载选题…</div>';
-      const params = new URLSearchParams({
-        q: topicSearch.value.trim(),
-        status: topicStatus.value,
-        source: topicSource.value,
-        category: topicCategory.value,
-      });
+    async function saveWritingPrompt() {
+      const button = $('btn-save-prompt');
+      if (!promptInput.value.trim()) return showStatus('error', '请填写写作 Prompt');
+      button.disabled = true;
+      promptState.textContent = '正在保存…';
       try {
-        const resp = await fetch('/api/topics?' + params.toString());
-        const data = await resp.json();
-        if (!resp.ok || !data.ok) throw new Error(data.error || '选题加载失败');
-        updateCategoryOptions(data.topics);
-        renderTopics(data.topics);
-      } catch (e) {
-        topicCenter.innerHTML = '<div class="topic-center-empty">' + escapeHtml(e.message || e) + '</div>';
-      }
-    }
-
-    async function saveCustomTopic() {
-      const title = $('custom-topic-title').value.trim();
-      if (!title) return showStatus('error', '请输入自定义主题标题');
-      $('btn-save-topic').disabled = true;
-      try {
-        const resp = await fetch('/api/topics', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            title,
-            category: $('custom-topic-category').value.trim() || 'custom',
-            origin: $('custom-topic-origin').value.trim(),
-            key_points: $('custom-topic-points').value.split('\n').map(x => x.trim()).filter(Boolean),
-            client: clientSelect.value,
-          }),
+        const resp = await fetch('/api/writing-prompt', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prompt: promptInput.value}),
         });
         const data = await resp.json();
-        if (!resp.ok || !data.ok) throw new Error(data.error || '保存主题失败');
-        topicStatus.value = 'available';
-        topicSource.value = 'custom';
-        topicCategory.value = 'all';
-        topicSearch.value = title;
-        await loadTopics();
-        $('custom-topic-form').classList.remove('show');
-        showStatus('success', '自定义主题已保存并选中。');
-      } catch (e) {
-        showStatus('error', e.message || e);
+        if (!resp.ok || !data.ok) throw new Error(data.error || 'Prompt 保存失败');
+        promptInput.value = data.prompt;
+        promptState.textContent = '已保存 · 刷新后仍会保留';
+      } catch (error) {
+        promptState.textContent = '保存失败';
+        showStatus('error', error.message || String(error));
       } finally {
-        $('btn-save-topic').disabled = false;
+        button.disabled = false;
       }
+    }
+
+    async function restoreSystemPrompt() {
+      const button = $('btn-reset-prompt');
+      button.disabled = true;
+      promptState.textContent = '正在恢复系统默认…';
+      try {
+        const resp = await fetch('/api/writing-prompt');
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || '读取默认 Prompt 失败');
+        promptInput.value = data.system_default;
+        promptState.textContent = '系统默认 · 点击保存后生效';
+      } catch (error) {
+        promptState.textContent = '恢复失败';
+        showStatus('error', error.message || String(error));
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function updateThemeDescription() {
+      const option = themeInput.selectedOptions[0];
+      if (!option) return;
+      $('theme-description-text').textContent = option.dataset.description || '';
+      $('theme-swatch').style.setProperty('--theme-color', option.dataset.primary || '#ff4d6d');
+      $('theme-swatch').style.setProperty('--theme-bg', option.dataset.background || '#ffffff');
     }
 
     function showStatus(kind, msg) {
@@ -1208,7 +1292,12 @@
       metaEl.innerHTML =
         '<strong>' + escapeHtml(p.topic.id) + '</strong> · ' +
         escapeHtml(p.topic.title) + ' · <strong>' + escapeHtml(p.topic.category) +
-        '</strong> · theme=' + escapeHtml(p.theme);
+        '</strong> · 排版：' + escapeHtml(themeLabel(p.theme));
+    }
+
+    function themeLabel(themeId) {
+      const option = Array.from(themeInput.options).find(item => item.value === themeId);
+      return option ? option.textContent : themeId;
     }
 
     function imageModeBadge(mode) {
@@ -1223,7 +1312,6 @@
 
     function setActions(enabled) {
       btnPublish.disabled = !enabled;
-      btnPreflight.disabled = !enabled;
       btnEdit.disabled = !enabled;
       toolbar.classList.toggle('show', enabled);
     }
@@ -1233,6 +1321,7 @@
       setPreview(result.html_url, undefined);
       setMeta(currentPreview);
       themeInput.value = result.theme;
+      updateThemeDescription();
       setActions(true);
     }
 
@@ -1263,7 +1352,7 @@
           '</div>' +
           '<div class="title">' + escapeHtml(e.title || e.topic_id) + '</div>' +
           '<div class="meta">' +
-            escapeHtml(e.topic_id || '') + ' · ' + escapeHtml(e.theme || '') + ' · ' +
+            escapeHtml(e.topic_id || '') + ' · ' + escapeHtml(themeLabel(e.theme || '')) + ' · ' +
             escapeHtml(topicStateNames[e.status] || e.status || '草稿') + ' · ' +
             escapeHtml(e.updated_at || e.created_at || '') +
           '</div>';
@@ -1276,15 +1365,81 @@
       }
     }
 
+    function focusableHistoryElements() {
+      return [...historyDrawer.querySelectorAll(
+        'button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )].filter(element => !element.hidden);
+    }
+
+    function closeHistory() {
+      if (!historyBackdrop.classList.contains('show')) return;
+      historyBackdrop.classList.remove('show');
+      historyBackdrop.setAttribute('aria-hidden', 'true');
+      historyLoadToken += 1;
+      document.removeEventListener('keydown', handleHistoryKeydown);
+      const trigger = historyTriggerFocus;
+      historyTriggerFocus = null;
+      if (trigger) trigger.focus();
+    }
+
+    function handleHistoryKeydown(event) {
+      if (!historyBackdrop.classList.contains('show')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeHistory();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = focusableHistoryElements();
+      if (!focusable.length) {
+        event.preventDefault();
+        historyDrawer.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (!historyDrawer.contains(activeElement) || activeElement === historyDrawer) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    async function openHistory() {
+      if (historyBackdrop.classList.contains('show')) return;
+      if (settingsBackdrop.classList.contains('show')) closeModelSettings();
+      historyTriggerFocus = document.activeElement;
+      historyBackdrop.classList.add('show');
+      historyBackdrop.setAttribute('aria-hidden', 'false');
+      historyDrawer.focus();
+      document.addEventListener('keydown', handleHistoryKeydown);
+      await refreshHistory();
+    }
+
     async function refreshHistory() {
+      const loadToken = ++historyLoadToken;
+      historyRefresh.disabled = true;
+      historyList.innerHTML = '<div class="history-empty">正在加载历史记录…</div>';
       try {
         const resp = await fetch('/api/history');
         const data = await resp.json();
-        if (resp.ok && data.ok) {
-          renderHistory(data.entries);
-        }
+        if (loadToken !== historyLoadToken || !historyBackdrop.classList.contains('show')) return;
+        if (!resp.ok || !data.ok) throw new Error(data.error || '历史记录加载失败');
+        renderHistory(data.entries);
       } catch (e) {
-        // history is best-effort; ignore network errors
+        if (loadToken !== historyLoadToken || !historyBackdrop.classList.contains('show')) return;
+        historyList.innerHTML =
+          '<div class="history-empty">加载失败：' + escapeHtml(e && e.message ? e.message : e) +
+          '<br><button class="history-retry" type="button">重试</button></div>';
+        historyList.querySelector('.history-retry').addEventListener('click', refreshHistory);
+      } finally {
+        if (loadToken === historyLoadToken) historyRefresh.disabled = false;
       }
     }
 
@@ -1304,19 +1459,20 @@
           theme: e.theme,
           html_url: data.html_url,
           image_mode: e.image_mode,
-          assessment: e.assessment || {},
         };
         const restore = prevId === e.id ? readIframeScroll() : 0;
         setPreview(data.html_url, restore);
         setMeta(currentPreview);
-        if (e.client !== undefined) clientSelect.value = e.client || '';
-        const modeText = imageModeText(e.image_mode);
-        showStatus('info', '📜 已回看历史 #' + e.id + ' · ' + modeText);
+        if (e.client !== undefined) {
+          clientSelect.value = e.client || '';
+          updateWritingStyleDescription();
+        }
         setActions(true);
         // highlight active item
         for (const it of historyList.querySelectorAll('.history-item')) {
           it.classList.toggle('active', it.dataset.id === String(e.id));
         }
+        closeHistory();
       } catch (e) {
         showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
       }
@@ -1346,7 +1502,7 @@
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     const phaseNames = {
       queued: '排队中', starting: '准备中', writing: '写作中',
-      images: '生成图片', render: '生成预览', quality: '质量检查', completed: '已完成'
+      images: '生成图片', render: '生成预览', completed: '已完成'
     };
 
     async function pollJob(jobId) {
@@ -1364,8 +1520,6 @@
           applyResult(job.result);
           const kind = job.result.image_mode === 'real' ? 'success' : 'warning';
           showStatus(kind, '预览已生成 · ' + imageModeText(job.result.image_mode));
-          await refreshHistory();
-          await loadTopics();
           btnPreview.disabled = false;
           return;
         }
@@ -1389,13 +1543,19 @@
     }
 
     async function doPreview() {
-      const topicId = (topicSelect.value || '').trim();
-      if (!topicId) return showStatus('error', '请选择主题');
+      const payload = articleFormPayload();
+      if (!payload.subject) return showStatus('error', '请输入文章主题');
+      btnPreview.disabled = true;
+      if (!promptInput.value.trim()) {
+        btnPreview.disabled = false;
+        return showStatus('error', '请填写写作 Prompt');
+      }
       try {
         await submitJob('/api/jobs', {
-          topic_id: topicId,
+          ...payload,
+          prompt: promptInput.value,
+          prompt_mode: 'template',
           theme: themeInput.value,
-          client: clientSelect.value,
         });
       } catch (e) {
         showStatus('error', '生成失败：' + (e.message || e));
@@ -1443,7 +1603,6 @@
         setPreview(data.html_url, 0);
         setMeta(currentPreview);
         showStatus('success', 'Markdown 已保存，预览已更新。');
-        await refreshHistory();
       } catch (e) {
         showStatus('error', e.message || e);
       } finally {
@@ -1463,36 +1622,12 @@
       currentPreview.theme = data.entry.theme;
       setPreview(data.html_url, readIframeScroll());
       setMeta(currentPreview);
-      showStatus('success', '主题已更新为 ' + currentPreview.theme);
-    }
-
-    async function showPreflight(display = true) {
-      if (!currentPreview) return null;
-      const resp = await fetch('/api/history/' + currentPreview.history_id + '/preflight');
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) {
-        showStatus('error', data.error || '发布前检查失败');
-        return null;
-      }
-      const icons = {pass: '✅', warn: '⚠️', error: '❌'};
-      const report = data.checks.map(item => icons[item.level] + ' ' + item.message).join('\n');
-      if (display) {
-        showStatus(data.publishable ? (data.checks.some(x => x.level === 'warn') ? 'warning' : 'success') : 'error', report);
-      }
-      return data;
+      showStatus('success', '排版风格已更新为 ' + themeLabel(currentPreview.theme));
     }
 
     async function doPublish() {
       if (!currentPreview) {
         showStatus('error', '请先生成预览或从历史中选择');
-        return;
-      }
-      const readiness = await showPreflight(false);
-      if (!readiness || !readiness.publishable) {
-        if (readiness) {
-          const failed = readiness.checks.filter(x => x.level === 'error').map(x => '❌ ' + x.message).join('\n');
-          showStatus('error', '发布前检查未通过：\n' + failed);
-        }
         return;
       }
       if (!confirm('确认推送到微信草稿箱？\n历史 # ' + currentPreview.history_id +
@@ -1511,8 +1646,6 @@
         const data = await resp.json();
         if (data.ok) {
           showStatus('success', '✅ 推送成功\n' + (data.stdout || '').trim());
-          await refreshHistory();
-          await loadTopics();
         } else {
           let msg = '❌ 推送失败（returncode=' + data.returncode + '）';
           if (data.stderr && data.stderr.trim()) {
@@ -1533,7 +1666,6 @@
 
     btnPreview.addEventListener('click', doPreview);
     btnPublish.addEventListener('click', doPublish);
-    btnPreflight.addEventListener('click', showPreflight);
     btnEdit.addEventListener('click', openEditor);
     $('btn-save-edit').addEventListener('click', saveEditor);
     $('btn-cancel-edit').addEventListener('click', () => setPreview(currentPreview.html_url, 0));
@@ -1541,6 +1673,12 @@
     $('btn-regen-images').addEventListener('click', () => regenerate('images'));
     $('btn-regen-image').addEventListener('click', () => regenerate('image', $('image-role').value));
     $('btn-apply-theme').addEventListener('click', applyTheme);
+    historyTrigger.addEventListener('click', openHistory);
+    historyRefresh.addEventListener('click', refreshHistory);
+    $('btn-close-history').addEventListener('click', closeHistory);
+    historyBackdrop.addEventListener('click', (event) => {
+      if (event.target === historyBackdrop) closeHistory();
+    });
     settingsTrigger.addEventListener('click', openModelSettings);
     $('settings-tab-writing').addEventListener('click', () => setSettingsTab('writing'));
     $('settings-tab-image').addEventListener('click', () => setSettingsTab('image'));
@@ -1560,18 +1698,15 @@
     settingsBackdrop.addEventListener('click', (event) => {
       if (event.target === settingsBackdrop) closeModelSettings();
     });
-    $('btn-new-topic').addEventListener('click', () => $('custom-topic-form').classList.toggle('show'));
-    $('btn-cancel-topic').addEventListener('click', () => $('custom-topic-form').classList.remove('show'));
-    $('btn-save-topic').addEventListener('click', saveCustomTopic);
-    topicSearch.addEventListener('input', () => {
-      clearTimeout(topicSearchTimer);
-      topicSearchTimer = setTimeout(loadTopics, 250);
+    promptInput.addEventListener('input', () => {
+      promptState.textContent = '有未保存修改 · 本次生成仍会使用';
     });
-    topicStatus.addEventListener('change', loadTopics);
-    topicSource.addEventListener('change', loadTopics);
-    topicCategory.addEventListener('change', loadTopics);
-    loadTopics();
-    refreshHistory();
+    $('btn-save-prompt').addEventListener('click', saveWritingPrompt);
+    $('btn-reset-prompt').addEventListener('click', restoreSystemPrompt);
+    clientSelect.addEventListener('change', updateWritingStyleDescription);
+    themeInput.addEventListener('change', updateThemeDescription);
+    updateWritingStyleDescription();
+    updateThemeDescription();
     const activeJob = localStorage.getItem('wechat-studio-active-job');
     if (activeJob) pollJob(activeJob).catch(e => {
       localStorage.removeItem('wechat-studio-active-job');

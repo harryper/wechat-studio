@@ -1,16 +1,11 @@
-"""Background generation pipeline and publish-readiness checks."""
+"""Background article generation pipeline."""
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-import yaml
-
-from scripts.check_blacklist import check as check_blacklist
-from scripts.humanness_score import score_article
 from toolkit.model_security import redact_sensitive
 
 from . import history, jobs, topics
@@ -23,43 +18,9 @@ from .render import (
 )
 
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-
-
 def extract_title(markdown: str) -> str:
     match = re.search(r"^#\s+(.+)$", markdown, re.MULTILINE)
     return match.group(1).strip() if match else ""
-
-
-def _client_blacklist(client: Optional[str]) -> list[str]:
-    if not client or not re.fullmatch(r"[A-Za-z0-9_-]+", client):
-        return []
-    path = SKILL_DIR / "clients" / client / "style.yaml"
-    try:
-        cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return []
-    return cfg.get("blacklist", []) or []
-
-
-def assess_markdown(markdown: str, client: Optional[str] = None) -> Dict[str, Any]:
-    title = extract_title(markdown)
-    blacklist = check_blacklist(title, _client_blacklist(client))
-    score = score_article(markdown).get("composite_score")
-    return {
-        "title": title,
-        "blacklist": blacklist,
-        "humanness_score": score,
-        "client": client or "",
-        "playbook_applied": bool(
-            client and (SKILL_DIR / "clients" / client / "playbook.md").exists()
-        ),
-    }
-
-
-def assess_workdir(workdir: Path, client: Optional[str] = None) -> Dict[str, Any]:
-    return assess_markdown((workdir / "article.md").read_text(encoding="utf-8"), client)
-
 
 def entry_result(entry: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -73,7 +34,6 @@ def entry_result(entry: Dict[str, Any]) -> Dict[str, Any]:
         },
         "theme": entry.get("theme"),
         "status": entry.get("status", "draft"),
-        "assessment": entry.get("assessment", {}),
     }
 
 
@@ -90,12 +50,14 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
             topic = payload["topic"]
             theme = payload["theme"]
             client = payload.get("client") or None
+            prompt = payload.get("prompt") or topic.get("prompt") or None
             entry_id = int(payload["history_id"])
             jobs.update(job_id, phase="writing", progress=10)
             workdir, image_rels = write_article_to_workdir(
                 topic,
                 client=client,
                 writing_settings=settings_snapshot["writing"],
+                prompt=prompt,
             )
             jobs.update(job_id, phase="images", progress=45)
             image_mode = generate_images_in_workdir(
@@ -106,25 +68,17 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
             )
             jobs.update(job_id, phase="render", progress=85)
             _write_preview_html(workdir, theme)
-            jobs.update(job_id, phase="quality", progress=92)
-            assessment = assess_workdir(workdir, client)
             markdown = (workdir / "article.md").read_text(encoding="utf-8")
             entry = history.update(entry_id, {
-                "title": assessment["title"] or topic.get("title", ""),
+                "title": extract_title(markdown) or topic.get("title", ""),
                 "theme": theme,
                 "workdir": str(workdir),
                 "image_mode": image_mode,
-                "assessment": assessment,
                 "markdown": markdown,
                 "status": "draft",
             })
             if entry is None:
                 raise RuntimeError(f"history #{entry_id} 不存在")
-            readiness = preflight(entry)
-            entry = history.update(
-                entry_id,
-                {"status": "ready" if readiness["publishable"] else "review"},
-            )
             topics.set_status(
                 topic["id"],
                 "drafted",
@@ -145,9 +99,9 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
                     workdir=workdir,
                     client=client,
                     writing_settings=settings_snapshot["writing"],
+                    prompt=topic.get("prompt") or None,
                 )
-                assessment = assess_workdir(workdir, client)
-                changes = {"title": assessment["title"] or entry.get("title"), "assessment": assessment}
+                changes = {}
             elif kind == "images":
                 jobs.update(job_id, phase="images", progress=20)
                 image_rels = ensure_default_image_references(workdir)
@@ -171,16 +125,14 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
                 raise RuntimeError(f"不支持的任务类型：{kind}")
             jobs.update(job_id, phase="render", progress=85)
             _write_preview_html(workdir, entry["theme"])
-            changes["markdown"] = (workdir / "article.md").read_text(encoding="utf-8")
+            markdown = (workdir / "article.md").read_text(encoding="utf-8")
+            changes["markdown"] = markdown
+            if kind == "article":
+                changes["title"] = extract_title(markdown) or entry.get("title")
             changes["status"] = "draft"
             entry = history.update(entry_id, changes)
             if entry is None:
                 raise RuntimeError(f"history #{entry_id} 不存在")
-            readiness = preflight(entry)
-            entry = history.update(
-                entry_id,
-                {"status": "ready" if readiness["publishable"] else "review"},
-            )
 
         if entry is None:
             raise RuntimeError("保存历史记录失败")
@@ -210,47 +162,3 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
                 f"{type(exc).__name__}: {exc}", secrets=api_keys
             ),
         )
-
-
-def preflight(entry: Dict[str, Any]) -> Dict[str, Any]:
-    workdir = Path(entry["workdir"])
-    md_path = workdir / "article.md"
-    if not md_path.exists():
-        return {"publishable": False, "checks": [{"key": "article", "level": "error", "message": "article.md 缺失"}]}
-
-    markdown = md_path.read_text(encoding="utf-8")
-    assessment = assess_markdown(markdown, entry.get("client") or None)
-    title = assessment["title"]
-    refs = re.findall(r"!\[[^]]*\]\(([^)]+)\)", markdown)
-    local_refs = [ref for ref in refs if not ref.startswith(("http://", "https://"))]
-    missing = [ref for ref in local_refs if not (workdir / ref).is_file()]
-    cover = next((ref for ref in refs if re.search(r"(?:^|/)cover\.(?:jpe?g|png|gif|webp)$", ref, re.I)), None)
-    states_path = workdir / "image-status.json"
-    try:
-        image_states = json.loads(states_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        image_states = {}
-
-    checks = [
-        {"key": "title", "level": "pass" if title else "error", "message": f"标题：{title or '缺失'}"},
-        {"key": "title_length", "level": "pass" if 20 <= len(title) <= 50 else "warn", "message": f"标题长度：{len(title)} 字（建议 20–50）"},
-        {"key": "images", "level": "pass" if len(refs) >= 5 else "warn", "message": f"图片：{len(refs)} 张（目标 5 张）"},
-        {"key": "missing_images", "level": "error" if missing else "pass", "message": f"缺失图片：{', '.join(missing)}" if missing else "图片文件完整"},
-        {"key": "cover", "level": "pass" if cover else "error", "message": f"封面：{cover}" if cover else "未识别到 cover 图片"},
-        {"key": "blacklist", "level": "pass" if assessment["blacklist"]["passed"] else "error", "message": "Blacklist 通过" if assessment["blacklist"]["passed"] else f"Blacklist 命中：{', '.join(h['pattern'] for h in assessment['blacklist']['hits'])}"},
-        {"key": "humanness", "level": "warn" if (assessment["humanness_score"] or 0) >= 65 else "pass", "message": f"AI 痕迹分：{assessment['humanness_score']}/100（越低越自然）"},
-        {"key": "disclaimer", "level": "pass", "message": "发布时将自动追加声明"},
-    ]
-    if image_states:
-        placeholders = [role for role, state in image_states.items() if state != "real"]
-        checks.append({
-            "key": "image_mode",
-            "level": "warn" if placeholders else "pass",
-            "message": f"占位图：{', '.join(placeholders)}" if placeholders else "5 张图均为 AI 生成",
-        })
-    return {
-        "publishable": not any(item["level"] == "error" for item in checks),
-        "checks": checks,
-        "assessment": assessment,
-        "image_states": image_states,
-    }

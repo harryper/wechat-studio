@@ -49,33 +49,51 @@ _FRAMEWORK_OUTLINES = {
         "结构（按顺序）：\n"
         "  # 标题\n"
         "  > **分类**：{category}　　**主题 ID**：`{topic_id}`\n"
-        "  ## 摘要（约 100 字）\n"
-        "  ## § 1 起源（300-500 字）\n"
-        "  ## § 2 发展演变（300-500 字）\n"
-        "  ## § 3 影响与应用（400-600 字）\n"
-        "  ## § 4 反直觉点（200-300 字）",
+        "  ## 摘要\n"
+        "  ## § 1 起源\n"
+        "  ## § 2 发展演变\n"
+        "  ## § 3 影响与应用\n"
+        "  ## § 4 反直觉点\n"
+        "章节要求（只约束正文长度，不属于标题）：\n"
+        "  - 摘要：约 100 字\n"
+        "  - 起源：300-500 字\n"
+        "  - 发展演变：300-500 字\n"
+        "  - 影响与应用：400-600 字\n"
+        "  - 反直觉点：200-300 字",
     ),
     "mechanism": (
         "框架 2：原理-证据-应用",
         "结构（按顺序）：\n"
         "  # 标题\n"
         "  > **分类**：{category}　　**主题 ID**：`{topic_id}`\n"
-        "  ## 摘要（约 100 字）\n"
-        "  ## § 1 原理阐释（核心机制，约 600 字）\n"
-        "  ## § 2 证据链（3-4 个经典实验或案例，共 800 字）\n"
-        "  ## § 3 现代应用（2-3 个落地场景，共 600 字）\n"
-        "  ## § 4 局限与边界（约 400 字）",
+        "  ## 摘要\n"
+        "  ## § 1 原理阐释\n"
+        "  ## § 2 证据链\n"
+        "  ## § 3 现代应用\n"
+        "  ## § 4 局限与边界\n"
+        "章节要求（只约束正文内容和长度，不属于标题）：\n"
+        "  - 摘要：约 100 字\n"
+        "  - 原理阐释：说明核心机制，约 600 字\n"
+        "  - 证据链：3-4 个经典实验或案例，共约 800 字\n"
+        "  - 现代应用：2-3 个落地场景，共约 600 字\n"
+        "  - 局限与边界：约 400 字",
     ),
     "experiment": (
         "框架 3：经典实验-当代启示",
         "结构（按顺序）：\n"
         "  # 标题\n"
         "  > **分类**：{category}　　**主题 ID**：`{topic_id}`\n"
-        "  ## 摘要（约 100 字）\n"
-        "  ## § 1 实验背景（时代背景 / 研究者 / 原始问题，约 500 字）\n"
-        "  ## § 2 实验设计（变量 / 样本 / 方法，约 600 字）\n"
-        "  ## § 3 结果与争议（数据 / 后续修订，约 700 字）\n"
-        "  ## § 4 当代启示（2-3 个现代应用，约 600 字）",
+        "  ## 摘要\n"
+        "  ## § 1 实验背景\n"
+        "  ## § 2 实验设计\n"
+        "  ## § 3 结果与争议\n"
+        "  ## § 4 当代启示\n"
+        "章节要求（只约束正文内容和长度，不属于标题）：\n"
+        "  - 摘要：约 100 字\n"
+        "  - 实验背景：包含时代背景、研究者和原始问题，约 500 字\n"
+        "  - 实验设计：包含变量、样本和方法，约 600 字\n"
+        "  - 结果与争议：包含数据和后续修订，约 700 字\n"
+        "  - 当代启示：包含 2-3 个现代应用，约 600 字",
     ),
 }
 
@@ -97,9 +115,15 @@ def select_framework(topic: Dict[str, Any]) -> str:
 def _build_outline(topic: Dict[str, Any]) -> str:
     key = select_framework(topic)
     label, template = _FRAMEWORK_OUTLINES[key]
-    return label + "\n\n" + template.format(
+    outline = template.format(
         category=topic.get("category", ""),
         topic_id=topic.get("id", ""),
+    )
+    return (
+        label
+        + "\n\n"
+        + outline
+        + "\n标题输出规则：标题中不得出现字数、数量或结构说明，也不得照抄章节要求中的括号内容。"
     )
 
 
@@ -182,6 +206,10 @@ def _build_prompt(topic: Dict[str, Any], client: Optional[str] = None) -> str:
 # ── 文章清洗 ─────────────────────────────────────────────────────────
 _LEADING_FENCE_RE = re.compile(r"^\s*```(?:markdown|md)?\s*\n", re.IGNORECASE)
 _TRAILING_FENCE_RE = re.compile(r"\n```\s*$", re.IGNORECASE)
+_HEADING_PAREN_RE = re.compile(r"[（(]([^（）()]*)[）)]")
+_HEADING_CONSTRAINT_RE = re.compile(
+    r"\d.*(?:字|个\s*(?:实验|案例|场景|要点|章节|部分|应用))"
+)
 
 
 def _strip_code_fence(text: str) -> str:
@@ -191,6 +219,21 @@ def _strip_code_fence(text: str) -> str:
     if m and _TRAILING_FENCE_RE.search(cleaned):
         cleaned = cleaned[m.end(): _TRAILING_FENCE_RE.search(cleaned).start()]
     return cleaned.strip()
+
+
+def _strip_heading_constraints(text: str) -> str:
+    """Remove copied length/count instructions from Markdown headings only."""
+    cleaned_lines = []
+    for line in text.splitlines():
+        if re.match(r"^\s*#{1,6}\s+", line):
+            line = _HEADING_PAREN_RE.sub(
+                lambda match: ""
+                if _HEADING_CONSTRAINT_RE.search(match.group(1))
+                else match.group(0),
+                line,
+            ).rstrip()
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
 
 
 def _enforce_title(text: str, fallback_title: str) -> str:
@@ -209,6 +252,7 @@ def write_article(
     topic: Dict[str, Any],
     *,
     client: Optional[str] = None,
+    prompt: Optional[str] = None,
     settings: Optional[Dict[str, str]] = None,
     model: Optional[str] = None,
     max_tokens: int = 4096,
@@ -234,15 +278,19 @@ def write_article(
         effective_settings = dict(settings)
     if model is not None:
         effective_settings["model"] = model
-    prompt = _build_prompt(topic, client=client)
+    effective_prompt = (
+        prompt
+        if isinstance(prompt, str) and prompt.strip()
+        else _build_prompt(topic, client=client)
+    )
     raw = generate_text(
-        prompt,
+        effective_prompt,
         effective_settings,
         max_tokens=max_tokens,
         timeout=timeout,
     )
 
-    text = _strip_code_fence(raw)
+    text = _strip_heading_constraints(_strip_code_fence(raw))
     text = _enforce_title(text, fallback_title=topic.get("title", "未命名主题"))
     return text
 

@@ -15,6 +15,7 @@ def _normalize(topic: Dict[str, Any]) -> Dict[str, Any]:
         "key_points": context.get("key_points", []),
         "origin": context.get("origin", ""),
         "caution": context.get("caution", "no"),
+        "prompt": context.get("prompt", ""),
     }
 
 

@@ -115,6 +115,78 @@ def test_write_article_uses_runtime_settings(monkeypatch):
     assert captured["kwargs"] == {"max_tokens": 777, "timeout": 12}
 
 
+def test_write_article_uses_edited_prompt_verbatim(monkeypatch):
+    captured = capture_generate_text(monkeypatch)
+    edited_prompt = "  用户在 Web 中编辑后的完整 Prompt\n"
+
+    write_article.write_article(
+        TOPIC,
+        prompt=edited_prompt,
+        settings=WRITING_SETTINGS,
+    )
+
+    assert captured["prompt"] == edited_prompt
+
+
+@pytest.mark.parametrize(
+    ("topic", "expected_headings"),
+    [
+        (
+            {"title": "逆向思维", "category": "思维方法"},
+            ["## 摘要", "## § 1 起源", "## § 2 发展演变", "## § 3 影响与应用", "## § 4 反直觉点"],
+        ),
+        (
+            {"title": "复利的机制", "category": "经济学"},
+            ["## 摘要", "## § 1 原理阐释", "## § 2 证据链", "## § 3 现代应用", "## § 4 局限与边界"],
+        ),
+        (
+            {"title": "经典服从实验", "category": "心理学"},
+            ["## 摘要", "## § 1 实验背景", "## § 2 实验设计", "## § 3 结果与争议", "## § 4 当代启示"],
+        ),
+    ],
+)
+def test_prompt_framework_keeps_length_constraints_out_of_headings(
+    topic, expected_headings
+):
+    prompt = write_article._build_prompt(topic)
+    headings = [line.strip() for line in prompt.splitlines() if line.strip().startswith("## ")]
+
+    assert headings == expected_headings
+    assert "约 100 字" in prompt
+    assert "标题中不得出现字数、数量或结构说明" in prompt
+
+
+def test_write_article_removes_copied_constraints_from_generated_headings(monkeypatch):
+    generated = """# 逆向思维（从失败出发）
+
+## 摘要（约 100 字）
+
+摘要正文。
+
+## § 1 起源（300-500 字）
+
+第一节正文。
+
+## § 2 证据链（3-4 个经典案例，共 800 字）
+
+第二节正文。"""
+    monkeypatch.setattr(write_article, "generate_text", lambda *args, **kwargs: generated)
+
+    result = write_article.write_article(
+        TOPIC,
+        prompt="写作",
+        settings=WRITING_SETTINGS,
+    )
+
+    assert result.startswith("# 逆向思维（从失败出发）")
+    assert "## 摘要\n" in result
+    assert "## § 1 起源\n" in result
+    assert "## § 2 证据链\n" in result
+    assert "约 100 字" not in result
+    assert "300-500 字" not in result
+    assert "3-4 个经典案例" not in result
+
+
 def test_write_article_legacy_env_is_converted_to_anthropic_settings(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://legacy.example")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "legacy-key")

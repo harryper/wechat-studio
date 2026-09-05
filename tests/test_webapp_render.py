@@ -57,6 +57,24 @@ def test_write_article_to_workdir_forwards_writing_settings(tmp_path, monkeypatc
     assert captured["settings"] == WRITING_SETTINGS
 
 
+def test_write_article_to_workdir_forwards_edited_prompt(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        render,
+        "write_article",
+        lambda topic, **kwargs: captured.update(kwargs) or ARTICLE,
+    )
+
+    render.write_article_to_workdir(
+        {"title": "用户主题", "category": "自定义主题"},
+        tmp_path,
+        prompt="用户编辑后的完整 Prompt",
+        writing_settings=WRITING_SETTINGS,
+    )
+
+    assert captured["prompt"] == "用户编辑后的完整 Prompt"
+
+
 def test_write_preview_html_drops_legacy_cjk_cjk_spacing(tmp_path, monkeypatch):
     """If cli.py preview somehow produces a CJK-spaced article.html,
     _write_preview_html must re-render via xiaohu so the final file is clean.

@@ -126,7 +126,7 @@ python3 {skill_dir}/toolkit/cli.py publish {markdown_path} \
 
 Web 页面将 LLM 长文写作、5 张图和排版作为后台任务执行，通过 `job_id` 轮询进度。任务完成后支持在线编辑 Markdown、换主题、只重写文章、重生全部图片或指定图片。
 
-Web 可选加载客户 Style/Playbook，并在生成后及发布前检查标题 Blacklist、AI 痕迹分、标题长度、图片完整性、封面和占位图。Blacklist 或必需文件检查失败时不得发布。
+Web 可选加载客户 Style/Playbook。用户确认后可直接将当前预览推送到微信草稿箱；Blacklist 和文章质量检测仅作为独立工具按需运行。
 
 Web 不会自动执行热点抓取、SEO 备选标题、人工改稿学习或数据复盘。
 
