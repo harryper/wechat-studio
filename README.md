@@ -7,8 +7,8 @@
 ## 功能概览
 
 - 从 `references/knowledge-corpus.yaml` 的 30 个认知模型中选择选题；六个分类分别覆盖认识世界、做决策、理解概率、理解人性、长期发展和理解自己。每个主题按原理、证据、应用、边界四个角度组织，并匹配写作框架。
-- 通过 Anthropic Messages 兼容接口生成 2500–4000 字 Markdown 长文。
-- 异步生成 1 张封面和 4 张内文图；提示词按实际章节正文生成，五图保持统一视觉风格，并只允许逐字准确的原文短标签。单张失败时生成本地占位图，不中断整篇任务。
+- Web 写作支持 OpenAI-compatible 与 Anthropic Messages 两种协议，生成 2500–4000 字 Markdown 长文。
+- Web 工作台异步生成 1 张封面和 4 张内文图；提示词按实际章节正文生成，五图保持统一视觉风格，并只允许逐字准确的原文短标签。它只调用当前选中的一个模型；单张失败会使任务失败，不会自动回退或生成占位图。
 - 提供 38 套主题、桌面/移动预览、Markdown 在线修改和 D1 内容历史。
 - 选题中心支持搜索、状态/来源/分类筛选和自定义主题。
 - 支持重写文章、重生全部图片、重生单张图片及单独换主题。
@@ -34,7 +34,7 @@ pip install -r requirements.txt pytest
 
 ## 配置
 
-推荐直接 `cp .env.example .env` 后填值；`.env.example` 是变量清单的单一来源。
+推荐直接 `cp .env.example .env` 后填值；`.env.example` 是变量清单的单一来源。首次打开 Web 工作台且本地模型设置文件尚不存在时，Web 会从 `.env/config.yaml` 导入一次；之后继续使用 Web 设置不需要把密钥写回 `.env`。
 
 推荐在项目根目录创建不入库的 `.env`：
 
@@ -68,6 +68,20 @@ D1_API_URL=https://wechat-studio-data.harryperlau.workers.dev
 ```
 
 `config.yaml` 支持 `${VAR}` 和 `${VAR:-default}`，不要在仓库文件中写入真实密钥。未设置 `APP_PASSWORD` 时，开发环境默认密码为 `asdf123456`；这只适合本机测试。
+
+### Web 模型设置边界
+
+在工作台右上角的“设置”中配置写作和生图模型。以下规则是 Web 工作台、CLI 和 OpenClaw 的明确边界：
+
+> Web 工作台优先使用 webapp/_data/model-settings.json；文件不存在时从 .env/config.yaml 导入一次。
+>
+> Web 设置只影响之后提交的新任务；CLI/OpenClaw 始终继续读取 .env/config.yaml。
+>
+> API Key 仅保存在本机，但任何获得工作台登录密码的人都能在设置页面查看完整值。
+>
+> Web 生图只调用当前选中的一个模型，失败时任务直接失败，不自动回退或生成占位图。
+
+模型设置文件属于本机运行数据，不应提交或复制到其他机器；请将工作台登录密码视为可以读取这些本地 API Key 的凭据。
 
 ## 启动 Web 工作台
 

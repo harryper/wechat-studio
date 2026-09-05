@@ -11,6 +11,7 @@ import yaml
 
 from scripts.check_blacklist import check as check_blacklist
 from scripts.humanness_score import score_article
+from toolkit.model_security import redact_sensitive
 
 from . import history, jobs, topics
 from .render import (
@@ -76,7 +77,7 @@ def entry_result(entry: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def run_job(job_id: str) -> None:
+def run_job(job_id: str, settings_snapshot: dict) -> None:
     """Execute a queued full/regeneration job and persist every phase."""
     job = jobs.get(job_id)
     if job is None:
@@ -91,9 +92,18 @@ def run_job(job_id: str) -> None:
             client = payload.get("client") or None
             entry_id = int(payload["history_id"])
             jobs.update(job_id, phase="writing", progress=10)
-            workdir, image_rels = write_article_to_workdir(topic, client=client)
+            workdir, image_rels = write_article_to_workdir(
+                topic,
+                client=client,
+                writing_settings=settings_snapshot["writing"],
+            )
             jobs.update(job_id, phase="images", progress=45)
-            image_mode = generate_images_in_workdir(workdir, topic, image_rels)
+            image_mode = generate_images_in_workdir(
+                workdir,
+                topic,
+                image_rels,
+                settings_snapshot["image"],
+            )
             jobs.update(job_id, phase="render", progress=85)
             _write_preview_html(workdir, theme)
             jobs.update(job_id, phase="quality", progress=92)
@@ -130,17 +140,32 @@ def run_job(job_id: str) -> None:
             client = entry.get("client") or None
             if kind == "article":
                 jobs.update(job_id, phase="writing", progress=15)
-                write_article_to_workdir(topic, workdir=workdir, client=client)
+                write_article_to_workdir(
+                    topic,
+                    workdir=workdir,
+                    client=client,
+                    writing_settings=settings_snapshot["writing"],
+                )
                 assessment = assess_workdir(workdir, client)
                 changes = {"title": assessment["title"] or entry.get("title"), "assessment": assessment}
             elif kind == "images":
                 jobs.update(job_id, phase="images", progress=20)
                 image_rels = ensure_default_image_references(workdir)
-                mode = generate_images_in_workdir(workdir, topic, image_rels)
+                mode = generate_images_in_workdir(
+                    workdir,
+                    topic,
+                    image_rels,
+                    settings_snapshot["image"],
+                )
                 changes = {"image_mode": mode}
             elif kind == "image":
                 jobs.update(job_id, phase="images", progress=20)
-                mode = generate_single_image_in_workdir(workdir, topic, payload["role"])
+                mode = generate_single_image_in_workdir(
+                    workdir,
+                    topic,
+                    payload["role"],
+                    settings_snapshot["image"],
+                )
                 changes = {"image_mode": mode}
             else:
                 raise RuntimeError(f"不支持的任务类型：{kind}")
@@ -167,6 +192,10 @@ def run_job(job_id: str) -> None:
             result=entry_result(entry),
         )
     except Exception as exc:
+        api_keys = (
+            settings_snapshot["writing"]["api_key"],
+            settings_snapshot["image"]["api_key"],
+        )
         failed_history_id = (job.get("payload") or {}).get("history_id") if job else None
         if failed_history_id:
             try:
@@ -177,7 +206,9 @@ def run_job(job_id: str) -> None:
             job_id,
             status="failed",
             phase=jobs.get(job_id).get("phase", "failed") if jobs.get(job_id) else "failed",
-            error=f"{type(exc).__name__}: {exc}",
+            error=redact_sensitive(
+                f"{type(exc).__name__}: {exc}", secrets=api_keys
+            ),
         )
 
 

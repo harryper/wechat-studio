@@ -37,12 +37,14 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Union
 
 import requests
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from toolkit import env_config
+from toolkit.model_security import redact_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -119,21 +121,42 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
 def _compress_image(raw_bytes: bytes, max_size: int) -> bytes:
-    """Compress image to fit under max_size by reducing JPEG quality."""
+    """Boundedly recompress and downscale an image until it fits ``max_size``."""
     from io import BytesIO
     from PIL import Image
 
-    img = Image.open(BytesIO(raw_bytes))
-    if img.mode == "RGBA":
+    if max_size <= 0:
+        raise ValueError("max_size must be positive")
+
+    with Image.open(BytesIO(raw_bytes)) as source:
+        source.load()
+        img = source.copy()
+    if img.mode not in {"RGB", "L"}:
         img = img.convert("RGB")
 
-    for quality in (90, 80, 70, 60, 50):
-        buf = BytesIO()
-        img.save(buf, format="JPEG", quality=quality, optimize=True)
-        if buf.tell() <= max_size:
-            return buf.getvalue()
+    qualities = (90, 80, 70, 60, 50)
+    for round_index in range(8):
+        last_candidate = b""
+        for quality in qualities:
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            last_candidate = buf.getvalue()
+            if len(last_candidate) <= max_size:
+                return last_candidate
 
-    return buf.getvalue()
+        if round_index == 7 or img.size == (1, 1):
+            break
+        ratio = (max_size / len(last_candidate)) ** 0.5
+        scale = max(0.5, min(0.85, ratio * 0.95))
+        width = max(1, int(img.width * scale))
+        height = max(1, int(img.height * scale))
+        if width == img.width and width > 1:
+            width -= 1
+        if height == img.height and height > 1:
+            height -= 1
+        img = img.resize((width, height), Image.Resampling.LANCZOS)
+
+    raise ValueError(f"Image could not be compressed below {max_size} bytes")
 
 
 def _size_to_aspect(size: str) -> str:
@@ -734,6 +757,42 @@ def _build_provider(config: dict) -> ImageProvider:
 
 
 # --- Public API ---
+
+def generate_image_with_provider(
+    prompt: str,
+    output_path: Union[str, Path],
+    provider_settings: dict,
+    size: str = "cover",
+) -> str:
+    """Generate once with the explicitly selected provider, without fallback."""
+    entry = {
+        "id": provider_settings["provider_id"],
+        "provider": provider_settings["adapter"],
+        "model": provider_settings["model"],
+        "base_url": provider_settings["base_url"],
+        "api_key": provider_settings["api_key"],
+    }
+    try:
+        provider = _build_provider_from_entry(entry)
+        raw_bytes = provider.generate(prompt, provider.resolve_size(size))
+        if len(raw_bytes) > MAX_FILE_SIZE:
+            raw_bytes = _compress_image(raw_bytes, MAX_FILE_SIZE)
+        if len(raw_bytes) > MAX_FILE_SIZE:
+            raise ValueError("Image output exceeds the 5 MB limit")
+    except Exception as exc:
+        detail = (
+            "Image provider "
+            f"{provider_settings['provider_id']!r} model "
+            f"{provider_settings['model']!r} failed: {exc}"
+        )
+        raise RuntimeError(
+            redact_sensitive(detail, secrets=(provider_settings["api_key"],))
+        ) from None
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(raw_bytes)
+    return str(output)
 
 def generate_image(
     prompt: str,

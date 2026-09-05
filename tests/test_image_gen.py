@@ -5,11 +5,14 @@ providers run and in what order, unknown ids fail loudly, and the first
 successful API response is written unchanged.
 """
 import base64
+from io import BytesIO
 import inspect
+import random
 import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TOOLKIT_DIR = SKILL_DIR / "toolkit"
@@ -19,6 +22,12 @@ for _path in (str(SKILL_DIR), str(TOOLKIT_DIR)):
 
 import image_gen  # noqa: E402
 from toolkit import env_config  # noqa: E402
+
+
+IMAGE_SETTINGS = {
+    "provider_id": "cliproxy", "adapter": "openai", "model": "gpt-image-2",
+    "base_url": "http://127.0.0.1:8317/v1", "api_key": "image-secret",
+}
 
 
 def _config(*entries):
@@ -207,6 +216,92 @@ def test_generate_image_has_simple_public_signature():
     ]
 
 
+def test_generate_image_with_provider_builds_only_selected_provider(tmp_path, monkeypatch):
+    """The explicit Web path must not enter the legacy fallback chain."""
+    calls = []
+
+    class FakeProvider:
+        def resolve_size(self, size):
+            return "1536x1024"
+
+        def generate(self, prompt, size):
+            calls.append((prompt, size))
+            return b"image-bytes"
+
+    monkeypatch.setattr(
+        image_gen, "_build_provider_from_entry", lambda entry: FakeProvider()
+    )
+    monkeypatch.setattr(
+        image_gen,
+        "_build_provider_chain",
+        lambda config: pytest.fail("strict Web generation entered provider fallback chain"),
+    )
+    out = tmp_path / "image.jpg"
+
+    image_gen.generate_image_with_provider("prompt", out, IMAGE_SETTINGS)
+
+    assert out.read_bytes() == b"image-bytes"
+    assert calls == [("prompt", "1536x1024")]
+
+
+def test_generate_image_with_provider_never_writes_above_five_megabytes(
+    tmp_path, monkeypatch
+):
+    """High-entropy provider output must be resized until it fits the hard limit."""
+    width = height = 4096
+    pixels = random.Random(20260905).randbytes(width * height * 3)
+    source = Image.frombytes("RGB", (width, height), pixels)
+    buffer = BytesIO()
+    source.save(buffer, format="JPEG", quality=100)
+    difficult_bytes = buffer.getvalue()
+    assert len(difficult_bytes) > image_gen.MAX_FILE_SIZE
+
+    class NoisyProvider:
+        def resolve_size(self, size):
+            return "4096x4096"
+
+        def generate(self, prompt, size):
+            return difficult_bytes
+
+    monkeypatch.setattr(
+        image_gen, "_build_provider_from_entry", lambda entry: NoisyProvider()
+    )
+    out = tmp_path / "strict.jpg"
+
+    image_gen.generate_image_with_provider("prompt", out, IMAGE_SETTINGS)
+
+    assert 0 < out.stat().st_size <= image_gen.MAX_FILE_SIZE
+    with Image.open(out) as generated:
+        generated.verify()
+
+
+def test_generate_image_with_provider_redacts_entire_error_context(
+    tmp_path, monkeypatch
+):
+    secret = "strict-image-collision"
+    settings = {**IMAGE_SETTINGS, "model": secret, "api_key": secret}
+
+    class FailingProvider:
+        def resolve_size(self, size):
+            return "1024x1024"
+
+        def generate(self, prompt, size):
+            raise RuntimeError(f"Authorization: Bearer {secret}")
+
+    monkeypatch.setattr(
+        image_gen, "_build_provider_from_entry", lambda entry: FailingProvider()
+    )
+    out = tmp_path / "strict.jpg"
+
+    with pytest.raises(RuntimeError) as excinfo:
+        image_gen.generate_image_with_provider("prompt", out, settings)
+
+    assert secret not in str(excinfo.value)
+    assert "cliproxy" in str(excinfo.value)
+    assert "***" in str(excinfo.value)
+    assert not out.exists()
+
+
 def test_generate_image_accepts_first_successful_provider_bytes(tmp_path, fake_chain):
     minimax = FakeProvider("minimax", [b"image-with-any-content"])
     fallback = FakeProvider("openai", [b"never"])
@@ -228,6 +323,16 @@ def test_generate_image_falls_back_after_provider_exception(tmp_path, fake_chain
     image_gen.generate_image("prompt", str(out), config={})
 
     assert out.read_bytes() == b"clean"
+
+
+def test_legacy_generate_image_still_falls_back(fake_chain, tmp_path):
+    first = FakeProvider("first", [RuntimeError("first failed")])
+    second = FakeProvider("second", [b"clean"])
+    fake_chain(first, second)
+
+    image_gen.generate_image("prompt", tmp_path / "out.jpg", config={})
+
+    assert len(second.prompts) == 1
 
 
 def test_generate_image_raises_when_every_provider_fails(tmp_path, fake_chain):

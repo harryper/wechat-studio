@@ -20,21 +20,37 @@ cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
 """
 
+import base64
+import copy
 import hashlib
 import hmac
+import io
 import logging
 import os
 import re
 import subprocess
 import sys
+import tempfile
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
+from PIL import Image
 
-from . import history, jobs, pipeline, publications, topics
+from toolkit.image_gen import generate_image_with_provider
+from toolkit.llm_adapters import test_writing_connection
+from toolkit.model_registry import (
+    ProviderConfigError,
+    get_provider,
+    registry_payload,
+    resolve_provider_config,
+)
+from toolkit.model_security import redact_sensitive
+
+from . import history, jobs, model_settings, pipeline, publications, topics
 from .d1_client import D1Error, client as d1
 from .render import (
     _write_preview_html,
@@ -57,6 +73,11 @@ COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 天
 
 # 公开端点：登录页和健康检查。静态资源在 /static 前缀。
 PUBLIC_PATHS = {"/login", "/api/health"}
+MODEL_SETTINGS_PATHS = {
+    "/api/model-settings",
+    "/api/model-settings/test-writing",
+    "/api/model-settings/test-image",
+}
 
 # cli.py 子进程超时（秒）。publish 含外网上传 60s 足够。
 SUBPROCESS_TIMEOUT = int(os.environ.get("SUBPROCESS_TIMEOUT", "60"))
@@ -64,6 +85,11 @@ JOB_EXECUTOR = ThreadPoolExecutor(
     max_workers=int(os.environ.get("WS_JOB_WORKERS", "1")),
     thread_name_prefix="wechat-studio-job",
 )
+
+
+def _submit_model_job(job: dict, settings_snapshot: dict) -> None:
+    """Queue a job with an isolated request-time model settings snapshot."""
+    JOB_EXECUTOR.submit(pipeline.run_job, job["id"], copy.deepcopy(settings_snapshot))
 
 # ── Flask 应用 ───────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -74,6 +100,49 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("wechat-studio")
+
+
+def _set_private_no_store(response: Response) -> Response:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+def _model_settings_json(payload: dict, status: int = 200) -> Response:
+    response = jsonify(payload)
+    response.status_code = status
+    return _set_private_no_store(response)
+
+
+def _submitted_api_keys(value: object) -> tuple[str, ...]:
+    if not isinstance(value, dict):
+        return ()
+    sections = (value.get("writing"), value.get("image"), value)
+    return tuple(
+        api_key
+        for section in sections
+        if isinstance(section, dict)
+        and isinstance((api_key := section.get("api_key")), str)
+        and api_key
+    )
+
+
+def _settings_error(exc: object, submitted: object, status: int = 400) -> Response:
+    return _model_settings_json(
+        {
+            "ok": False,
+            "error": redact_sensitive(exc, secrets=_submitted_api_keys(submitted)),
+        },
+        status,
+    )
+
+
+@app.after_request
+def prevent_model_settings_caching(response: Response) -> Response:
+    """Keep secrets and test results out of browser and proxy caches."""
+    if request.path in MODEL_SETTINGS_PATHS:
+        return _set_private_no_store(response)
+    return response
 
 
 def _run_cli(args: List[str], env: Dict[str, str],
@@ -187,6 +256,93 @@ def health():
     )
 
 
+@app.route("/api/model-settings", methods=["GET", "PUT"])
+def api_model_settings():
+    """Return effective model settings or validate and persist a full form."""
+    if request.method == "GET":
+        try:
+            effective = model_settings.load_effective_settings()
+            settings = copy.deepcopy(effective.settings)
+            for kind in ("writing", "image"):
+                settings[kind].pop("adapter", None)
+            return _model_settings_json({
+                "ok": True,
+                "registry": registry_payload(),
+                "settings": settings,
+                "source": effective.source,
+                "warning": effective.warning,
+            })
+        except Exception as exc:
+            return _settings_error(exc, None, 500)
+
+    data = request.get_json(silent=True)
+    submitted = data.get("settings") if isinstance(data, dict) else None
+    try:
+        validated = model_settings._validate_raw_settings(submitted)
+        model_settings.save_settings(validated)
+        return _model_settings_json({"ok": True, "settings": validated})
+    except ProviderConfigError as exc:
+        return _settings_error(exc, submitted)
+    except Exception as exc:
+        return _settings_error(exc, submitted, 500)
+
+
+@app.route("/api/model-settings/test-writing", methods=["POST"])
+def api_model_settings_test_writing():
+    """Test an unsaved writing form without mutating persisted settings."""
+    data = request.get_json(silent=True)
+    submitted = data.get("settings") if isinstance(data, dict) else None
+    try:
+        resolved = resolve_provider_config("writing", submitted)
+        result = test_writing_connection(resolved)
+        return _model_settings_json(result)
+    except ProviderConfigError as exc:
+        return _settings_error(exc, submitted)
+    except Exception as exc:
+        return _settings_error(exc, submitted, 502)
+
+
+@app.route("/api/model-settings/test-image", methods=["POST"])
+def api_model_settings_test_image():
+    """Generate a temporary paid image and return only a bounded preview."""
+    data = request.get_json(silent=True)
+    submitted = data.get("settings") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("confirm_charge") is not True:
+        return _model_settings_json(
+            {"ok": False, "error": "测试会实际生成一张图片并产生费用，请确认后重试。"},
+            400,
+        )
+
+    started_at = time.monotonic()
+    try:
+        resolved = resolve_provider_config("image", submitted)
+        provider = get_provider("image", resolved["provider_id"])
+        with tempfile.TemporaryDirectory(prefix="wechat-studio-image-test-") as temp_dir:
+            original_path = Path(temp_dir) / "original.png"
+            generate_image_with_provider(
+                "一张简洁、中性的连接测试图片，不包含文字。",
+                original_path,
+                resolved,
+                provider.test_size,
+            )
+            with Image.open(original_path) as original:
+                original.thumbnail((512, 512))
+                buffer = io.BytesIO()
+                original.convert("RGB").save(buffer, format="JPEG", quality=85)
+        image_data = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return _model_settings_json({
+            "ok": True,
+            "provider_id": resolved["provider_id"],
+            "model": resolved["model"],
+            "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+            "image": f"data:image/jpeg;base64,{image_data}",
+        })
+    except ProviderConfigError as exc:
+        return _settings_error(exc, submitted)
+    except Exception as exc:
+        return _settings_error(exc, submitted, 502)
+
+
 @app.route("/api/topics", methods=["GET", "POST"])
 def api_topics():
     """Search the topic center or create a custom topic."""
@@ -237,6 +393,7 @@ def api_create_job():
 
     if client and not re.fullmatch(r"[A-Za-z0-9_-]+", client):
         return jsonify({"ok": False, "error": "客户名格式不合法", "phase": "input"}), 400
+    settings_snapshot = model_settings.snapshot_settings()
     entry_id = history.add({
         "topic_id": topic["id"],
         "title": topic["title"],
@@ -251,11 +408,12 @@ def api_create_job():
             "theme": theme,
             "client": client,
             "history_id": entry_id,
+            "models": model_settings.audit_settings(settings_snapshot),
         })
     except Exception:
         history.update(entry_id, {"status": "failed"})
         raise
-    JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
+    _submit_model_job(job, settings_snapshot)
     return jsonify({"ok": True, "job_id": job["id"], "history_id": entry_id, "status": "queued"}), 202
 
 
@@ -370,6 +528,8 @@ def api_history_regenerate(entry_id: int):
         if role not in {"cover", "inline-1", "inline-2", "inline-3", "inline-4"}:
             return jsonify({"ok": False, "error": "图片 role 不合法"}), 400
         payload["role"] = role
+    settings_snapshot = model_settings.snapshot_settings()
+    payload["models"] = model_settings.audit_settings(settings_snapshot)
     previous_status = entry.get("status") or "draft"
     history.update(entry_id, {"status": "generating"})
     try:
@@ -377,7 +537,7 @@ def api_history_regenerate(entry_id: int):
     except Exception:
         history.update(entry_id, {"status": "failed", "details": {"previous_status": previous_status}})
         raise
-    JOB_EXECUTOR.submit(pipeline.run_job, job["id"])
+    _submit_model_job(job, settings_snapshot)
     return jsonify({"ok": True, "job_id": job["id"], "status": "queued"}), 202
 
 

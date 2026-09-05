@@ -19,6 +19,18 @@ from webapp import render
 
 
 CJK_PAIR_RE = re.compile(r"[一-鿿] [一-鿿]")
+WRITING_SETTINGS = {
+    "provider_id": "custom-openai",
+    "adapter": "openai_compatible",
+    "model": "writer",
+    "base_url": "https://llm.example/v1",
+    "api_key": "write-secret",
+}
+IMAGE_SETTINGS = {
+    "provider_id": "cliproxy", "adapter": "openai", "model": "gpt-image-2",
+    "base_url": "http://127.0.0.1:8317/v1", "api_key": "image-secret",
+}
+ARTICLE = "# 新标题\n\n## 摘要\n\n正文"
 
 
 def _make_workdir(tmp_path: Path, article_md: str) -> Path:
@@ -26,6 +38,23 @@ def _make_workdir(tmp_path: Path, article_md: str) -> Path:
     wd.mkdir()
     (wd / "article.md").write_text(article_md, encoding="utf-8")
     return wd
+
+
+def test_write_article_to_workdir_forwards_writing_settings(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        render,
+        "write_article",
+        lambda topic, **kwargs: captured.update(kwargs) or ARTICLE,
+    )
+
+    render.write_article_to_workdir(
+        {"title": "损失厌恶", "category": "认知偏差", "key_points": ["损失比同额收益更显著"]},
+        tmp_path,
+        writing_settings=WRITING_SETTINGS,
+    )
+
+    assert captured["settings"] == WRITING_SETTINGS
 
 
 def test_write_preview_html_drops_legacy_cjk_cjk_spacing(tmp_path, monkeypatch):
@@ -124,25 +153,137 @@ def test_insert_images_adds_cover_and_four_inline_images():
         assert result.count(rel) == 1
 
 
-def test_generate_images_reports_mixed_mode(tmp_path, monkeypatch):
+def make_article_workdir(tmp_path: Path) -> Path:
     workdir = tmp_path / "work"
     (workdir / "images").mkdir(parents=True)
+    (workdir / "article.md").write_text(
+        """# 标题
+
+## 摘要
+
+摘要正文。
+
+## § 1 起源
+
+第一节正文。
+
+## § 2 机制
+
+第二节正文。
+
+## § 3 证据
+
+第三节正文。
+
+## § 4 应用
+
+第四节正文。
+""",
+        encoding="utf-8",
+    )
+    return workdir
+
+
+def raising_image_call(*args, **kwargs):
+    raise RuntimeError("quota")
+
+
+def test_web_image_failure_raises_without_placeholder(tmp_path, monkeypatch):
+    """A failed initial image must not fabricate a preview-ready image set."""
+    workdir = make_article_workdir(tmp_path)
+    monkeypatch.setattr(render, "generate_image_with_provider", raising_image_call)
+
+    with pytest.raises(RuntimeError, match="quota"):
+        render.generate_images_in_workdir(
+            workdir, TOPIC, render.default_image_rels(), IMAGE_SETTINGS
+        )
+
+    assert not (workdir / "image-status.json").exists()
+    assert list((workdir / "images").iterdir()) == []
+
+
+def test_later_full_image_failure_keeps_earlier_images_without_success_status(
+    tmp_path, monkeypatch
+):
+    workdir = make_article_workdir(tmp_path)
     calls = []
 
-    def fake_generate(prompt, output, size, **kwargs):
-        calls.append(Path(output).name)
-        if output.endswith("inline-2.jpg"):
-            raise RuntimeError("quota")
-        Path(output).write_bytes(b"real")
+    def generate_then_fail(prompt, output, provider_settings, size):
+        calls.append(Path(output))
+        if len(calls) == 3:
+            raise RuntimeError("third image failed")
+        Path(output).write_bytes(f"image-{len(calls)}".encode())
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
-    topic = {"id": "kb-001", "title": "测试", "category": "psychology", "key_points": ["a", "b"]}
-    mode = render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
-    assert mode == "mixed"
-    assert calls == ["cover.jpg", "inline-1.jpg", "inline-2.jpg", "inline-3.jpg", "inline-4.jpg"]
-    states = __import__("json").loads((workdir / "image-status.json").read_text())
-    assert states["inline-2"] == "placeholder"
-    assert all((workdir / rel).is_file() for rel in render.default_image_rels())
+    monkeypatch.setattr(render, "generate_image_with_provider", generate_then_fail)
+
+    with pytest.raises(RuntimeError, match="third image failed"):
+        render.generate_images_in_workdir(
+            workdir, TOPIC, render.default_image_rels(), IMAGE_SETTINGS
+        )
+
+    assert (workdir / "images" / "cover.jpg").read_bytes() == b"image-1"
+    assert (workdir / "images" / "inline-1.jpg").read_bytes() == b"image-2"
+    assert not (workdir / "images" / "inline-2.jpg").exists()
+    assert not (workdir / "image-status.json").exists()
+
+
+def test_single_image_failure_preserves_old_image_status_and_cleans_temp(
+    tmp_path, monkeypatch
+):
+    workdir = make_article_workdir(tmp_path)
+    target = workdir / "images" / "cover.jpg"
+    target.write_bytes(b"reviewed-image")
+    state_path = workdir / "image-status.json"
+    original_status = {"cover": "reviewed", "inline-1": "real"}
+    state_path.write_text(json.dumps(original_status), encoding="utf-8")
+    attempted_paths = []
+
+    def write_partial_then_fail(prompt, output, provider_settings, size):
+        attempted = Path(output)
+        attempted_paths.append(attempted)
+        attempted.write_bytes(b"partial-new-image")
+        raise RuntimeError("replacement failed")
+
+    monkeypatch.setattr(
+        render, "generate_image_with_provider", write_partial_then_fail
+    )
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        render.generate_single_image_in_workdir(
+            workdir, TOPIC, "cover", IMAGE_SETTINGS
+        )
+
+    assert target.read_bytes() == b"reviewed-image"
+    assert json.loads(state_path.read_text(encoding="utf-8")) == original_status
+    assert len(attempted_paths) == 1
+    assert not attempted_paths[0].exists()
+    assert list(target.parent.glob(".cover.jpg.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "image_rels",
+    [
+        ["images/cover.jpg", "images/inline-1.jpg", "images/inline-2.jpg", "images/inline-3.jpg"],
+        [*render.default_image_rels(), "images/extra.jpg"],
+    ],
+)
+def test_generate_images_rejects_non_five_image_paths_before_provider_or_status(
+    tmp_path, monkeypatch, image_rels
+):
+    """A non-five image set cannot be reported as a complete successful job."""
+    workdir = make_article_workdir(tmp_path)
+    calls = []
+
+    def fake_generate(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
+
+    with pytest.raises(ValueError, match="exactly 5"):
+        render.generate_images_in_workdir(workdir, TOPIC, image_rels, IMAGE_SETTINGS)
+
+    assert calls == []
+    assert not (workdir / "image-status.json").exists()
 
 
 def test_generate_images_accepts_every_successful_provider_result(tmp_path, monkeypatch):
@@ -150,12 +291,14 @@ def test_generate_images_accepts_every_successful_provider_result(tmp_path, monk
     (workdir / "images").mkdir(parents=True)
     calls = []
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, provider_settings, size):
         calls.append((prompt, Path(output).name, size))
         Path(output).write_bytes(b"real")
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
-    mode = render.generate_images_in_workdir(workdir, TOPIC, render.default_image_rels())
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
+    mode = render.generate_images_in_workdir(
+        workdir, TOPIC, render.default_image_rels(), IMAGE_SETTINGS
+    )
 
     assert mode == "real"
     assert len(calls) == 5
@@ -201,14 +344,16 @@ def test_generate_images_ground_each_prompt_in_matching_article_section(tmp_path
     (workdir / "article.md").write_text(ARTICLE_GROUNDING_MD, encoding="utf-8")
     calls = []
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, provider_settings, size):
         calls.append(prompt)
         Path(output).write_bytes(b"real")
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
     topic = {"id": "custom-empty", "title": "一个含糊标题", "category": "心理学", "key_points": []}
 
-    render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+    render.generate_images_in_workdir(
+        workdir, topic, render.default_image_rels(), IMAGE_SETTINGS
+    )
 
     expected_facts = [
         "青年在职业与城市之间反复迁移",
@@ -235,14 +380,16 @@ def test_generate_images_records_the_actual_prompts(tmp_path, monkeypatch):
     (workdir / "article.md").write_text(ARTICLE_GROUNDING_MD, encoding="utf-8")
     generated = {}
 
-    def fake_generate(prompt, output, size):
+    def fake_generate(prompt, output, provider_settings, size):
         generated[Path(output).stem] = prompt
         Path(output).write_bytes(b"real")
 
-    monkeypatch.setattr(render, "generate_image", fake_generate)
+    monkeypatch.setattr(render, "generate_image_with_provider", fake_generate)
     topic = {"id": "custom-empty", "title": "一个含糊标题", "category": "心理学", "key_points": []}
 
-    render.generate_images_in_workdir(workdir, topic, render.default_image_rels())
+    render.generate_images_in_workdir(
+        workdir, topic, render.default_image_rels(), IMAGE_SETTINGS
+    )
 
     saved = json.loads((workdir / "image-prompts.json").read_text(encoding="utf-8"))
     assert saved == generated

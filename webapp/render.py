@@ -6,7 +6,7 @@ Three-step pipeline that replaces the structural mock in
 webapp/synthesize.py with real content:
 
     1. write_article()        — LLM (MiniMax via Anthropic-compatible API)
-    2. generate_images()      — image_gen.py with PIL placeholder fallback
+    2. generate_images()      — image_gen.py through the selected provider
     3. cli.py preview         — render themed HTML
 
 The workdir layout:
@@ -23,12 +23,9 @@ resolve against the iframe's base URL to ``/api/history/<id>/images/...``).
 cli.py publish keeps the relative paths, since it uploads local files
 to WeChat and rewrites the URLs itself.
 
-Image strategy: try the configured AI providers (MiniMax / OpenAI —
-whichever has quota + key) in order. If every provider fails,
-fall back to locally-generated placeholder images via PIL — deterministic
-color blocks with the topic title baked in via Pillow's default font.
-This keeps the WYSIWYG preview usable in environments where no AI image
-provider is configured.
+Image strategy: Web jobs use the image provider explicitly chosen in model
+settings. Image failures are surfaced to the job rather than silently filling
+the preview with placeholder artwork.
 """
 
 from __future__ import annotations
@@ -42,7 +39,7 @@ import sys
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 # Make 'scripts.write_article' and 'image_gen' importable without packaging.
 SKILL_DIR = Path(__file__).resolve().parent.parent
@@ -53,7 +50,7 @@ for p in (str(SKILL_DIR), str(TOOLKIT_DIR)):
         sys.path.insert(0, p)
 
 from scripts.write_article import write_article  # type: ignore  # noqa: E402
-from image_gen import generate_image  # type: ignore  # noqa: E402
+from image_gen import generate_image_with_provider  # type: ignore  # noqa: E402
 
 log = logging.getLogger("wechat-studio.render")
 
@@ -386,6 +383,7 @@ def write_article_to_workdir(
     topic: Dict[str, Any],
     workdir: Optional[Path] = None,
     client: Optional[str] = None,
+    writing_settings: Optional[Dict[str, str]] = None,
 ) -> Tuple[Path, List[str]]:
     """Write the article markdown into a workdir.
 
@@ -401,7 +399,7 @@ def write_article_to_workdir(
         workdir.mkdir()
     (workdir / "images").mkdir(exist_ok=True)
 
-    md_text = write_article(topic, client=client)
+    md_text = write_article(topic, client=client, settings=writing_settings)
 
     cover_rel = "images/cover.jpg"
     inline_rels = [f"images/inline-{i}.jpg" for i in range(1, 5)]
@@ -413,60 +411,53 @@ def write_article_to_workdir(
     return workdir, [cover_rel, *inline_rels]
 
 
-# ── 步骤 2：生成图片（AI 链 + PIL 占位图 fallback）──────────────────────
-# 不再做候选 OCR/质量检查：MiniMax API 成功返回的图片全部保留为真实图，
-# 只有 provider 异常时才降级到 PIL 占位图。质量由用户在工作台人工判断，
-# 发现伪文字时通过"重生指定图片"重新生成。
+# ── 步骤 2：生成图片（显式单 Provider）─────────────────────────────────
 def generate_images_in_workdir(
     workdir: Path,
     topic: Dict[str, Any],
     image_rels: List[str],
-) -> str:
+    image_settings: Dict[str, str],
+) -> Literal["real"]:
     """Generate one cover and four inline images.
 
-    Tries the configured AI providers (image_gen.generate_image). If every
-    provider fails — usually because no API key is configured or quota is
-    exhausted — falls back to local PIL placeholder images so the preview
-    still has visual structure. Returns ``"real"``, ``"mixed"``, or
-    ``"placeholder"`` so the UI can report the aggregate mode accurately.
+    Image generation is intentionally strict. The complete success status is
+    written only after all five images were generated successfully.
     """
+    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
+    if len(image_rels) != len(roles):
+        raise ValueError("image_rels must contain exactly 5 paths")
+
     img_dir = workdir / "images"
     img_dir.mkdir(exist_ok=True)
+    state_path = workdir / "image-status.json"
+    state_path.unlink(missing_ok=True)
 
-    roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
     prompts = _image_prompts_for_workdir(workdir, topic)
 
-    ai_failed: List[str] = []
-    image_states: Dict[str, str] = {}
     for rel, role in zip(image_rels, roles):
         prompt = prompts[role]
         target = img_dir / Path(rel).name
-        try:
-            generate_image(
-                prompt,
-                str(target),
-                size="cover" if role == "cover" else "article",
-            )
-            image_states[role] = "real"
-        except Exception as e:
-            ai_failed.append(f"{role}: {type(e).__name__}: {e}")
-            log.warning("AI image gen failed for %s: %s", role, e)
-            # Drop a placeholder so the file always exists for cli.py preview / publish.
-            target.write_bytes(_placeholder_image(topic, role))
-            image_states[role] = "placeholder"
+        generate_image_with_provider(
+            prompt,
+            str(target),
+            image_settings,
+            size="cover" if role == "cover" else "article",
+        )
 
-    (workdir / "image-status.json").write_text(
-        json.dumps(image_states, ensure_ascii=False, indent=2), encoding="utf-8"
+    state_path.write_text(
+        json.dumps({role: "real" for role in roles}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
-    if ai_failed:
-        log.warning("some AI images failed; using PIL placeholders. errors=%s",
-                    "; ".join(ai_failed)[:400])
-        return "placeholder" if len(ai_failed) == len(roles) else "mixed"
     return "real"
 
 
-def generate_single_image_in_workdir(workdir: Path, topic: Dict[str, Any], role: str) -> str:
-    """Regenerate one image and return the aggregate image mode."""
+def generate_single_image_in_workdir(
+    workdir: Path,
+    topic: Dict[str, Any],
+    role: str,
+    image_settings: Dict[str, str],
+) -> Literal["real"]:
+    """Regenerate one reviewed image, replacing it only after success."""
     roles = ["cover", *[f"inline-{i}" for i in range(1, 5)]]
     if role not in roles:
         raise ValueError(f"不支持的图片位置：{role}")
@@ -477,24 +468,20 @@ def generate_single_image_in_workdir(workdir: Path, topic: Dict[str, Any], role:
         states = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         states = {}
+    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     try:
-        generate_image(
+        generate_image_with_provider(
             prompts[role],
-            str(target),
+            str(temporary),
+            image_settings,
             size="cover" if role == "cover" else "article",
         )
-        states[role] = "real"
-    except Exception as e:
-        log.warning("AI image regeneration failed for %s: %s", role, e)
-        target.write_bytes(_placeholder_image(topic, role))
-        states[role] = "placeholder"
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    states[role] = "real"
     state_path.write_text(json.dumps(states, ensure_ascii=False, indent=2), encoding="utf-8")
-    values = [states.get(item, "placeholder") for item in roles]
-    if all(value == "real" for value in values):
-        return "real"
-    if all(value == "placeholder" for value in values):
-        return "placeholder"
-    return "mixed"
+    return "real"
 
 
 # ── 步骤 3：渲染预览（cli.py preview）──────────────────────────────────

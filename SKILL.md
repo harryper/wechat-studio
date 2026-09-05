@@ -32,6 +32,8 @@ pip install -r requirements.txt
 
 开始前用 `python3 {skill_dir}/scripts/diagnose.py --json` 确认依赖和凭据；缺项时按输出的 `recommendations` 补齐，不要用占位值继续。Web 工作台是可选入口（`docker compose up -d --build`，`http://localhost:9997`），Agent 直接流程不依赖它。
 
+Web 工作台优先使用 webapp/_data/model-settings.json；文件不存在时从 .env/config.yaml 导入一次。Web 设置只影响之后提交的新任务；CLI/OpenClaw 始终继续读取 .env/config.yaml。API Key 仅保存在本机，但任何获得工作台登录密码的人都能在设置页面查看完整值。Web 生图只调用当前选中的一个模型，失败时任务直接失败，不自动回退或生成占位图。
+
 ## 主流程
 
 ### 1. 确定选题

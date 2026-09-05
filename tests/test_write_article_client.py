@@ -3,22 +3,30 @@ import pytest
 from scripts import write_article
 
 
-class _TextBlock:
-    text = "# 测试标题\n\n正文"
+TOPIC = {
+    "title": "损失厌恶",
+    "category": "认知偏差",
+    "key_points": ["损失比同额收益更显著"],
+}
+WRITING_SETTINGS = {
+    "provider_id": "custom-openai",
+    "adapter": "openai_compatible",
+    "model": "writer",
+    "base_url": "https://llm.example/v1",
+    "api_key": "write-secret",
+}
+ARTICLE = "# 新标题\n\n## 摘要\n\n正文"
 
 
-class _Messages:
-    def __init__(self):
-        self.kwargs = None
+def capture_generate_text(monkeypatch):
+    captured = {}
 
-    def create(self, **kwargs):
-        self.kwargs = kwargs
-        return type("Response", (), {"content": [_TextBlock()]})()
+    def fake_generate(prompt, settings, **kwargs):
+        captured.update(prompt=prompt, settings=settings, kwargs=kwargs)
+        return ARTICLE
 
-
-class _LLMClient:
-    def __init__(self):
-        self.messages = _Messages()
+    monkeypatch.setattr(write_article, "generate_text", fake_generate)
+    return captured
 
 
 def test_build_client_requires_explicit_endpoint(monkeypatch, tmp_path):
@@ -75,22 +83,71 @@ def test_client_context_rejects_path_traversal():
 
 
 def test_write_article_keeps_customer_name_separate_from_llm_client(monkeypatch):
-    llm_client = _LLMClient()
     seen = {}
-
-    monkeypatch.setattr(write_article, "_build_client", lambda: llm_client)
 
     def fake_build_prompt(topic, client=None):
         seen["client"] = client
         return "prompt"
 
     monkeypatch.setattr(write_article, "_build_prompt", fake_build_prompt)
+    captured = capture_generate_text(monkeypatch)
 
     markdown = write_article.write_article(
         {"title": "测试主题"},
         client="demo",
+        settings=WRITING_SETTINGS,
     )
 
     assert seen["client"] == "demo"
-    assert markdown.startswith("# 测试标题")
-    assert llm_client.messages.kwargs["messages"][0]["content"] == "prompt"
+    assert markdown.startswith("# 新标题")
+    assert captured["prompt"] == "prompt"
+
+
+def test_write_article_uses_runtime_settings(monkeypatch):
+    captured = capture_generate_text(monkeypatch)
+
+    result = write_article.write_article(
+        TOPIC, settings=WRITING_SETTINGS, max_tokens=777, timeout=12
+    )
+
+    assert result.startswith("# 新标题")
+    assert captured["settings"] == WRITING_SETTINGS
+    assert captured["kwargs"] == {"max_tokens": 777, "timeout": 12}
+
+
+def test_write_article_legacy_env_is_converted_to_anthropic_settings(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://legacy.example")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "legacy-key")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "legacy-model")
+    captured = capture_generate_text(monkeypatch)
+
+    write_article.write_article(TOPIC)
+
+    assert captured["settings"] == {
+        "provider_id": "legacy-anthropic",
+        "adapter": "anthropic_messages",
+        "base_url": "https://legacy.example",
+        "api_key": "legacy-key",
+        "model": "legacy-model",
+    }
+
+
+def test_write_article_legacy_model_override_does_not_require_env_model(monkeypatch):
+    monkeypatch.setattr(write_article.env_config, "_loaded", True)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://legacy.example")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "legacy-key")
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    captured = capture_generate_text(monkeypatch)
+
+    write_article.write_article(TOPIC, model="override")
+
+    assert captured["settings"]["model"] == "override"
+
+
+def test_write_article_model_override_does_not_mutate_settings(monkeypatch):
+    captured = capture_generate_text(monkeypatch)
+
+    write_article.write_article(TOPIC, settings=WRITING_SETTINGS, model="override")
+
+    assert captured["settings"]["model"] == "override"
+    assert WRITING_SETTINGS["model"] == "writer"
