@@ -842,6 +842,18 @@
       )].filter(element => !element.hidden && !element.closest('[hidden]'));
     }
 
+    function setSettingsTestControlsLocked(locked) {
+      const controlIds = [
+        'settings-tab-writing', 'settings-tab-image',
+        'writing-provider', 'writing-model', 'writing-base-url', 'writing-api-key',
+        'btn-toggle-writing-api-key', 'btn-test-writing',
+        'image-provider', 'image-model', 'image-base-url', 'image-api-key',
+        'btn-toggle-image-api-key', 'btn-test-image',
+        'btn-save-model-settings', 'btn-cancel-model-settings',
+      ];
+      for (const controlId of controlIds) $(controlId).disabled = locked;
+    }
+
     function closeModelSettings() {
       if (settingsTestRunning) {
         settingsStatus('writing', '连接测试进行中，请等待完成后再关闭。', 'error');
@@ -936,12 +948,47 @@
       eye.setAttribute('aria-label', (visible ? '隐藏' : '显示') + (kind === 'writing' ? '写作' : '图片') + ' API Key');
     }
 
+    function redactSettingsTestError(error, apiKey) {
+      let message = error && error.message ? error.message : String(error || '连接测试失败');
+      if (apiKey) message = message.split(apiKey).join('***');
+      return message;
+    }
+
+    function renderSettingsTestStatus(kind, requestSnapshot, data, succeeded, error) {
+      const responseElapsed = Number(data && data.elapsed_ms);
+      const elapsed = Number.isFinite(responseElapsed) && responseElapsed >= 0
+        ? Math.round(responseElapsed)
+        : Math.max(0, Math.round(performance.now() - requestSnapshot.startedAt));
+      const details = [
+        'Provider：' + requestSnapshot.provider,
+        '模型：' + requestSnapshot.model,
+        '耗时：' + elapsed + ' ms',
+        succeeded ? '状态：成功' : '状态：失败',
+      ];
+      if (succeeded) {
+        const result = kind === 'writing' ? ((data && data.text) || 'OK') : '测试图片已生成';
+        details.push('结果：' + result);
+      } else {
+        details.push('错误：' + redactSettingsTestError(error, requestSnapshot.settings.api_key));
+      }
+      settingsStatus(kind, details.join(' · '), succeeded ? 'success' : 'error');
+    }
+
     async function runSettingsTest(kind) {
       if (settingsTestRunning || !providerDrafts) return;
       if (kind === 'image' && !window.confirm('测试会实际生成一张图片并产生费用，是否继续？')) return;
+      const requestSettings = settingsSection(kind);
+      const provider = settingsProvider(kind, requestSettings.provider_id);
+      const requestSnapshot = Object.freeze({
+        settings: Object.freeze({...requestSettings}),
+        provider: provider
+          ? provider.label + ' (' + requestSettings.provider_id + ')'
+          : requestSettings.provider_id,
+        model: requestSettings.model && requestSettings.model === requestSettings.api_key ? '***' : requestSettings.model,
+        startedAt: performance.now(),
+      });
       settingsTestRunning = true;
-      const button = $('btn-test-' + kind);
-      button.disabled = true;
+      setSettingsTestControlsLocked(true);
       settingsStatus(kind, kind === 'image' ? '正在生成测试图片…' : '正在测试连接…', '');
       if (kind === 'image') clearSettingsPreview();
       try {
@@ -949,22 +996,26 @@
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(kind === 'image'
-            ? {settings: settingsSection(kind), confirm_charge: true}
-            : {settings: settingsSection(kind)}),
+            ? {settings: requestSnapshot.settings, confirm_charge: true}
+            : {settings: requestSnapshot.settings}),
         });
         const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || '连接测试失败');
-        const suffix = data.elapsed_ms == null ? '' : '（' + data.elapsed_ms + ' ms）';
-        settingsStatus(kind, '连接成功 ' + suffix, 'success');
+        if (!response.ok || !data.ok) {
+          renderSettingsTestStatus(
+            kind, requestSnapshot, data, false, data.error || '连接测试失败'
+          );
+          return;
+        }
+        renderSettingsTestStatus(kind, requestSnapshot, data, true, null);
         if (kind === 'image' && data.image) {
           $('image-test-preview').src = data.image;
           $('image-test-preview').classList.add('show');
         }
       } catch (error) {
-        settingsStatus(kind, error.message || String(error), 'error');
+        renderSettingsTestStatus(kind, requestSnapshot, null, false, error);
       } finally {
         settingsTestRunning = false;
-        button.disabled = false;
+        setSettingsTestControlsLocked(false);
       }
     }
 

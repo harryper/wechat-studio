@@ -1,3 +1,5 @@
+import logging
+
 import requests
 import pytest
 
@@ -113,6 +115,38 @@ def test_empty_or_malformed_responses_fail_with_provider_context():
         llm_adapters.extract_openai_text({"choices": []}, "custom-openai")
 
 
+def test_openai_compatible_rejects_whitespace_only_text():
+    with pytest.raises(RuntimeError, match="custom-openai.*返回为空"):
+        llm_adapters.extract_openai_text(
+            {"choices": [{"message": {"content": " \n\t "}}]},
+            "custom-openai",
+        )
+
+
+def test_anthropic_messages_rejects_whitespace_only_text(monkeypatch):
+    factory = CapturingAnthropicFactory(FakeAnthropicResponse(" \n\t "))
+    monkeypatch.setattr(llm_adapters.anthropic, "Anthropic", factory)
+
+    with pytest.raises(RuntimeError, match="custom-anthropic.*返回为空"):
+        llm_adapters.generate_text("x", ANTHROPIC_SETTINGS)
+
+
+def test_connection_check_reports_whitespace_response_as_failure(monkeypatch):
+    response = FakeResponse(
+        200,
+        {"choices": [{"message": {"content": " \n\t "}}]},
+    )
+    monkeypatch.setattr(llm_adapters.requests, "post", lambda *args, **kwargs: response)
+
+    result = llm_adapters.test_writing_connection(OPENAI_SETTINGS)
+
+    assert result["ok"] is False
+    assert result["provider_id"] == "custom-openai"
+    assert result["model"] == "writer"
+    assert "返回为空" in result["error"]
+    assert "text" not in result
+
+
 def test_malformed_openai_json_response_fails_with_provider_context(monkeypatch):
     response = FakeResponse(200, {})
 
@@ -144,6 +178,19 @@ def test_adapter_errors_do_not_expose_api_key_or_url_credentials(monkeypatch):
     message = str(exc.value)
     assert "write-secret" not in message
     assert "user:pass" not in message
+
+
+def test_adapter_logging_masks_model_equal_to_api_key(monkeypatch, caplog):
+    secret = "adapter-log-collision"
+    settings = {**OPENAI_SETTINGS, "model": secret, "api_key": secret}
+    response = FakeResponse(200, {"choices": [{"message": {"content": "OK"}}]})
+    monkeypatch.setattr(llm_adapters.requests, "post", lambda *args, **kwargs: response)
+
+    with caplog.at_level(logging.INFO, logger=llm_adapters.__name__):
+        assert llm_adapters.generate_text("x", settings) == "OK"
+
+    assert secret not in caplog.text
+    assert "model=***" in caplog.text
 
 
 def test_openai_non_success_response_includes_redacted_limited_detail(monkeypatch):

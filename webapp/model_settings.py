@@ -43,7 +43,9 @@ class EffectiveSettings:
         object.__setattr__(self, "warning", warning)
 
 
-def _clean_section(kind: str, value: object) -> dict[str, str]:
+def _clean_section(
+    kind: str, value: object, *, compact_defaults: bool = False
+) -> dict[str, str]:
     if not isinstance(value, Mapping):
         raise ProviderConfigError(f"{kind} settings must be a mapping")
     unknown = set(value) - _SECTION_FIELDS
@@ -52,10 +54,21 @@ def _clean_section(kind: str, value: object) -> dict[str, str]:
 
     raw = dict(value)
     resolve_provider_config(kind, raw)
-    return {field: raw[field] for field in _SECTION_FIELDS if field in raw}
+    cleaned = {field: raw[field] for field in _SECTION_FIELDS if field in raw}
+    if compact_defaults:
+        spec = get_provider(kind, cleaned["provider_id"])
+        for field, default in (
+            ("model", spec.default_model),
+            ("base_url", spec.default_base_url),
+        ):
+            if default and cleaned.get(field) == default:
+                cleaned.pop(field)
+    return cleaned
 
 
-def _validate_raw_settings(settings: object) -> dict:
+def _validate_raw_settings(
+    settings: object, *, compact_defaults: bool = False
+) -> dict:
     if not isinstance(settings, Mapping):
         raise ProviderConfigError("Model settings must be a mapping")
     if set(settings) != {"schema_version", "writing", "image"}:
@@ -65,8 +78,12 @@ def _validate_raw_settings(settings: object) -> dict:
 
     return {
         "schema_version": _SCHEMA_VERSION,
-        "writing": _clean_section("writing", settings["writing"]),
-        "image": _clean_section("image", settings["image"]),
+        "writing": _clean_section(
+            "writing", settings["writing"], compact_defaults=compact_defaults
+        ),
+        "image": _clean_section(
+            "image", settings["image"], compact_defaults=compact_defaults
+        ),
     }
 
 
@@ -87,7 +104,7 @@ def load_settings(path: Path = SETTINGS_PATH) -> dict:
 
 def save_settings(settings: object, path: Path = SETTINGS_PATH) -> dict:
     """Validate and atomically save private, raw model-setting overrides."""
-    raw = _validate_raw_settings(settings)
+    raw = _validate_raw_settings(settings, compact_defaults=True)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(destination.parent, 0o700)
@@ -251,7 +268,14 @@ def audit_settings(settings: object) -> dict:
     for kind in ("writing", "image"):
         section = raw.get(kind)
         if isinstance(section, Mapping):
-            raw[kind] = {key: value for key, value in section.items() if key != "adapter"}
+            audit_source = {
+                key: value for key, value in section.items() if key != "adapter"
+            }
+            model = audit_source.get("model")
+            api_key = audit_source.get("api_key")
+            if model and api_key and model == api_key:
+                audit_source["model"] = "***"
+            raw[kind] = audit_source
     resolved = _resolve_settings(raw)
     return {
         kind: {

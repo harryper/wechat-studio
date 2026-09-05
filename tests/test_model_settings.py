@@ -1,5 +1,9 @@
+import copy
+import json
 import os
+from dataclasses import replace
 
+from toolkit import model_registry
 from webapp import model_settings
 
 
@@ -135,6 +139,18 @@ def test_audit_projection_accepts_resolved_settings():
     }
 
 
+def test_audit_projection_masks_model_equal_to_api_key_defensively():
+    secret = "audit-collision-secret"
+    settings = copy.deepcopy(SETTINGS_WITH_KEYS)
+    settings["writing"]["model"] = secret
+    settings["writing"]["api_key"] = secret
+
+    audit = model_settings.audit_settings(settings)
+
+    assert audit["writing"]["model"] == "***"
+    assert secret not in str(audit)
+
+
 def test_effective_settings_resolve_defaults_without_persisting_them(tmp_path):
     path = tmp_path / "settings.json"
     raw = {
@@ -163,3 +179,100 @@ def test_effective_settings_resolve_defaults_without_persisting_them(tmp_path):
             "api_key": "image-key",
         },
     }
+
+
+def test_load_settings_preserves_explicit_fields_already_on_disk(tmp_path):
+    """Compaction is a save boundary, not a mutation of existing stored forms."""
+    path = tmp_path / "settings.json"
+    stored = {
+        "schema_version": 1,
+        "writing": {
+            "provider_id": "openai",
+            "model": "gpt-5.5",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "write-key",
+        },
+        "image": {
+            "provider_id": "cliproxy",
+            "model": "gpt-image-2",
+            "base_url": "http://127.0.0.1:8317/v1",
+            "api_key": "image-key",
+        },
+    }
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    assert model_settings.load_settings(path) == stored
+
+
+def test_unchanged_resolved_preset_form_keeps_following_registry_defaults(
+    tmp_path, monkeypatch
+):
+    """A GET → unchanged PUT must not turn current preset defaults into overrides."""
+    path = tmp_path / "settings.json"
+    submitted = {
+        "schema_version": 1,
+        "writing": {
+            "provider_id": "openai",
+            "model": "gpt-5.5",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "write-key",
+        },
+        "image": {
+            "provider_id": "cliproxy",
+            "model": "gpt-image-2",
+            "base_url": "http://127.0.0.1:8317/v1",
+            "api_key": "image-key",
+        },
+    }
+    model_settings.save_settings(submitted, path)
+
+    unchanged_form = copy.deepcopy(
+        model_settings.load_effective_settings(path).settings
+    )
+    for section in (unchanged_form["writing"], unchanged_form["image"]):
+        section.pop("adapter")
+    model_settings.save_settings(unchanged_form, path)
+
+    assert model_settings.load_settings(path) == {
+        "schema_version": 1,
+        "writing": {"provider_id": "openai", "api_key": "write-key"},
+        "image": {"provider_id": "cliproxy", "api_key": "image-key"},
+    }
+
+    current = model_registry.get_provider("writing", "openai")
+    monkeypatch.setitem(
+        model_registry._PROVIDERS["writing"],
+        "openai",
+        replace(
+            current,
+            default_model="gpt-next",
+            default_base_url="https://next.example/v2",
+        ),
+    )
+
+    effective = model_settings.load_effective_settings(path).settings
+    assert effective["writing"]["model"] == "gpt-next"
+    assert effective["writing"]["base_url"] == "https://next.example/v2"
+
+
+def test_save_preserves_preset_overrides_and_all_custom_provider_values(tmp_path):
+    path = tmp_path / "settings.json"
+    submitted = {
+        "schema_version": 1,
+        "writing": {
+            "provider_id": "openai",
+            "model": "gateway-model",
+            "base_url": "https://gateway.example/v1",
+            "api_key": "write-key",
+        },
+        "image": {
+            "provider_id": "custom-openai-image",
+            "model": "gpt-image-2",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "image-key",
+        },
+    }
+
+    model_settings.save_settings(submitted, path)
+
+    assert model_settings.load_settings(path) == submitted

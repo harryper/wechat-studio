@@ -30,7 +30,7 @@ def extract_openai_text(payload: object, provider_id: str) -> str:
         content = payload["choices"][0]["message"]["content"]  # type: ignore[index]
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"{provider_id} 返回为空") from exc
-    if not isinstance(content, str) or not content:
+    if not isinstance(content, str) or not content.strip():
         raise RuntimeError(f"{provider_id} 返回为空")
     return content
 
@@ -44,7 +44,7 @@ def _extract_anthropic_text(response: object, provider_id: str) -> str:
         for block in content
         if isinstance((block_text := getattr(block, "text", None)), str)
     )
-    if not text:
+    if not text.strip():
         raise RuntimeError(f"{provider_id} 返回为空")
     return text
 
@@ -112,8 +112,8 @@ def generate_text(
 ) -> str:
     """Generate writing text with a validated provider configuration."""
     provider_id = settings["provider_id"]
-    model = settings["model"]
     api_key = settings["api_key"]
+    model = redact_sensitive(settings["model"], secrets=(api_key,))
     adapter = settings["adapter"]
     started_at = time.monotonic()
     host = safe_base_host(settings["base_url"])
@@ -156,7 +156,9 @@ def test_writing_connection(
     """Try a small writing request and return a redacted status payload."""
     started_at = time.monotonic()
     provider_id = settings["provider_id"]
-    model = settings["model"]
+    model = redact_sensitive(
+        settings["model"], secrets=(settings["api_key"],)
+    )
     try:
         text = generate_text("只回复 OK", settings, max_tokens=8, timeout=timeout)
     except Exception as exc:

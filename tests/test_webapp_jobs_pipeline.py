@@ -8,12 +8,14 @@ SETTINGS_WITH_KEYS = {
     "schema_version": 1,
     "writing": {
         "provider_id": "custom-openai",
+        "adapter": "openai_compatible",
         "model": "writer",
         "base_url": "https://llm.example/v1",
         "api_key": "write-secret",
     },
     "image": {
         "provider_id": "cliproxy",
+        "adapter": "openai",
         "model": "gpt-image-2",
         "base_url": "http://127.0.0.1:8317/v1",
         "api_key": "image-secret",
@@ -200,3 +202,28 @@ def test_pipeline_failure_persisted_to_d1_is_redacted(
     assert jobs.get(job_id)["error"] == (
         "RuntimeError: *** and *** at https://example.test/v1"
     )
+
+
+def test_pipeline_redacts_api_key_that_equals_exception_type_prefix(
+    tmp_path, monkeypatch, memory_d1
+):
+    captured = {}
+    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured)
+    settings = {
+        **SETTINGS_WITH_KEYS,
+        "writing": {
+            **SETTINGS_WITH_KEYS["writing"],
+            "api_key": "RuntimeError",
+        },
+    }
+    monkeypatch.setattr(
+        pipeline,
+        "write_article_to_workdir",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("request failed")),
+    )
+
+    pipeline.run_job(job_id, settings)
+
+    failed = jobs.get(job_id)
+    assert "RuntimeError" not in json.dumps(failed, ensure_ascii=False)
+    assert failed["error"] == "***: request failed"

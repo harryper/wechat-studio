@@ -31,6 +31,24 @@ SETTINGS_WITH_KEYS = {
     },
 }
 
+RESOLVED_SETTINGS_WITH_KEYS = {
+    "schema_version": 1,
+    "writing": {
+        "provider_id": "custom-openai",
+        "adapter": "openai_compatible",
+        "model": "writer",
+        "base_url": "https://llm.example/v1",
+        "api_key": "write-secret",
+    },
+    "image": {
+        "provider_id": "cliproxy",
+        "adapter": "openai",
+        "model": "gpt-image-2",
+        "base_url": "http://127.0.0.1:8317/v1",
+        "api_key": "image-secret",
+    },
+}
+
 EXPECTED_AUDIT = {
     "writing": {
         "provider_id": "custom-openai",
@@ -45,7 +63,7 @@ EXPECTED_AUDIT = {
 }
 
 EFFECTIVE_WITH_KEYS = model_settings.EffectiveSettings(
-    settings=SETTINGS_WITH_KEYS, source="local", warning=""
+    settings=RESOLVED_SETTINGS_WITH_KEYS, source="local", warning=""
 )
 SETTINGS_WITH_FILE_URL = {
     **SETTINGS_WITH_KEYS,
@@ -97,7 +115,7 @@ def web_client(tmp_path, monkeypatch, memory_d1):
     monkeypatch.setattr(
         app_module.model_settings,
         "snapshot_settings",
-        lambda: copy.deepcopy(SETTINGS_WITH_KEYS),
+        lambda: copy.deepcopy(RESOLVED_SETTINGS_WITH_KEYS),
     )
     client = app_module.app.test_client()
     client.set_cookie(app_module.COOKIE_NAME, app_module.COOKIE_VALUE)
@@ -146,6 +164,61 @@ def test_index_model_settings_focus_trap_redirects_external_and_dialog_focus(web
     assert "if (!settingsDialog.contains(document.activeElement)) {" in rendered
     assert "} else if (activeElement === settingsDialog) {" in rendered
     assert "(event.shiftKey ? last : first).focus();" in rendered
+
+
+def test_index_model_tests_bind_status_to_locked_request_snapshot(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+    test_function = rendered[
+        rendered.index("async function runSettingsTest"):
+        rendered.index("async function saveModelSettings")
+    ]
+
+    assert test_function.index("const requestSnapshot") < test_function.index("await fetch")
+    assert "settings: requestSnapshot.settings" in test_function
+    assert "requestSettings.model === requestSettings.api_key ? '***'" in test_function
+    assert "setSettingsTestControlsLocked(true);" in test_function
+    assert "setSettingsTestControlsLocked(false);" in test_function
+    assert "window.confirm('测试会实际生成一张图片并产生费用，是否继续？')" in test_function
+    assert "confirm_charge: true" in test_function
+
+    status_function = rendered[
+        rendered.index("function renderSettingsTestStatus"):
+        rendered.index("async function runSettingsTest")
+    ]
+    assert "requestSnapshot.provider" in status_function
+    assert "requestSnapshot.model" in status_function
+    assert "Provider：" in status_function
+    assert "模型：" in status_function
+    assert "耗时：" in status_function
+    assert "状态：成功" in status_function
+    assert "状态：失败" in status_function
+    assert "redactSettingsTestError" in status_function
+
+    lock_function = rendered[
+        rendered.index("function setSettingsTestControlsLocked"):
+        rendered.index("function closeModelSettings")
+    ]
+    for control_id in (
+        "settings-tab-writing",
+        "settings-tab-image",
+        "writing-provider",
+        "writing-model",
+        "writing-base-url",
+        "writing-api-key",
+        "btn-toggle-writing-api-key",
+        "btn-test-writing",
+        "image-provider",
+        "image-model",
+        "image-base-url",
+        "image-api-key",
+        "btn-toggle-image-api-key",
+        "btn-test-image",
+        "btn-save-model-settings",
+        "btn-cancel-model-settings",
+    ):
+        assert repr(control_id) in lock_function
 
 
 def test_model_settings_get_returns_full_keys_registry_and_no_store_headers(
@@ -239,6 +312,8 @@ def test_model_settings_put_saves_and_returns_validated_form(web_client, monkeyp
     assert response.status_code == 200
     assert response.get_json() == {"ok": True, "settings": SETTINGS_WITH_KEYS}
     assert saved == [SETTINGS_WITH_KEYS]
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 def test_model_settings_writing_connection_uses_unsaved_resolved_form(
@@ -268,6 +343,8 @@ def test_model_settings_writing_connection_uses_unsaved_resolved_form(
     assert response.get_json()["ok"] is True
     assert calls == [EXPECTED_RESOLVED_WRITING]
     assert saves == []
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 def test_model_settings_image_test_requires_exact_charge_confirmation(
@@ -342,6 +419,8 @@ def test_model_settings_image_test_uses_registry_size_and_removes_original(
     assert calls[0][3] == "1024x1024"
     assert not calls[0][1].exists()
     assert saves == []
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 @pytest.mark.parametrize(
@@ -398,7 +477,7 @@ def test_create_job_passes_full_snapshot_only_to_executor(web_client, monkeypatc
     monkeypatch.setattr(
         app_module.model_settings,
         "snapshot_settings",
-        lambda: SETTINGS_WITH_KEYS,
+        lambda: RESOLVED_SETTINGS_WITH_KEYS,
     )
 
     response = client.post("/api/jobs", json={
@@ -408,14 +487,14 @@ def test_create_job_passes_full_snapshot_only_to_executor(web_client, monkeypatc
     job = jobs.get(response.get_json()["job_id"])
     assert "write-secret" not in json.dumps(job, ensure_ascii=False)
     assert job["payload"]["models"] == EXPECTED_AUDIT
-    assert executor.calls[0][1] == (job["id"], SETTINGS_WITH_KEYS)
-    assert executor.calls[0][1][1] is not SETTINGS_WITH_KEYS
-    assert executor.calls[0][1][1]["writing"] is not SETTINGS_WITH_KEYS["writing"]
+    assert executor.calls[0][1] == (job["id"], RESOLVED_SETTINGS_WITH_KEYS)
+    assert executor.calls[0][1][1] is not RESOLVED_SETTINGS_WITH_KEYS
+    assert executor.calls[0][1][1]["writing"] is not RESOLVED_SETTINGS_WITH_KEYS["writing"]
 
 
 def test_later_save_does_not_mutate_queued_snapshot(web_client, monkeypatch):
     client, executor = web_client
-    mutable = copy.deepcopy(SETTINGS_WITH_KEYS)
+    mutable = copy.deepcopy(RESOLVED_SETTINGS_WITH_KEYS)
     monkeypatch.setattr(
         app_module.model_settings,
         "snapshot_settings",
@@ -500,7 +579,7 @@ def test_regenerate_job_passes_full_snapshot_only_to_executor(
     def snapshot_settings():
         nonlocal calls
         calls += 1
-        return copy.deepcopy(SETTINGS_WITH_KEYS)
+        return copy.deepcopy(RESOLVED_SETTINGS_WITH_KEYS)
 
     monkeypatch.setattr(app_module.model_settings, "snapshot_settings", snapshot_settings)
     workdir = tmp_path / "work"
@@ -519,4 +598,4 @@ def test_regenerate_job_passes_full_snapshot_only_to_executor(
     assert calls == 1
     assert "write-secret" not in json.dumps(job, ensure_ascii=False)
     assert job["payload"]["models"] == EXPECTED_AUDIT
-    assert executor.calls[0][1] == (job["id"], SETTINGS_WITH_KEYS)
+    assert executor.calls[0][1] == (job["id"], RESOLVED_SETTINGS_WITH_KEYS)

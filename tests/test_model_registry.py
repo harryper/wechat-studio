@@ -49,6 +49,25 @@ def test_resolve_provider_config_rejects_unknown_provider_and_empty_required_fie
         resolve_provider_config("writing", {"provider_id": "custom-openai", "api_key": "key"})
 
 
+def test_resolve_provider_config_rejects_model_equal_to_api_key_without_echoing_it():
+    secret = "collision-secret-value"
+
+    with pytest.raises(ProviderConfigError) as excinfo:
+        resolve_provider_config(
+            "writing",
+            {
+                "provider_id": "custom-openai",
+                "model": secret,
+                "base_url": "https://llm.example/v1",
+                "api_key": secret,
+            },
+        )
+
+    assert secret not in str(excinfo.value)
+    assert "model" in str(excinfo.value)
+    assert "api_key" in str(excinfo.value)
+
+
 def test_get_provider_is_scoped_to_kind():
     assert get_provider("writing", "openai").kind == "writing"
     assert get_provider("image", "openai").kind == "image"

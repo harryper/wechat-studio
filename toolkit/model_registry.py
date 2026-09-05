@@ -139,6 +139,8 @@ def resolve_provider_config(kind: str, raw: Mapping[str, object]) -> dict[str, s
         api_key = _required_text("api_key", api_key)
     elif not isinstance(api_key, str):
         raise ProviderConfigError("api_key must be a string")
+    if model == api_key:
+        raise ProviderConfigError("model must not equal api_key")
 
     return {
         "provider_id": spec.provider_id,

@@ -202,6 +202,64 @@ def test_web_image_failure_raises_without_placeholder(tmp_path, monkeypatch):
     assert list((workdir / "images").iterdir()) == []
 
 
+def test_later_full_image_failure_keeps_earlier_images_without_success_status(
+    tmp_path, monkeypatch
+):
+    workdir = make_article_workdir(tmp_path)
+    calls = []
+
+    def generate_then_fail(prompt, output, provider_settings, size):
+        calls.append(Path(output))
+        if len(calls) == 3:
+            raise RuntimeError("third image failed")
+        Path(output).write_bytes(f"image-{len(calls)}".encode())
+
+    monkeypatch.setattr(render, "generate_image_with_provider", generate_then_fail)
+
+    with pytest.raises(RuntimeError, match="third image failed"):
+        render.generate_images_in_workdir(
+            workdir, TOPIC, render.default_image_rels(), IMAGE_SETTINGS
+        )
+
+    assert (workdir / "images" / "cover.jpg").read_bytes() == b"image-1"
+    assert (workdir / "images" / "inline-1.jpg").read_bytes() == b"image-2"
+    assert not (workdir / "images" / "inline-2.jpg").exists()
+    assert not (workdir / "image-status.json").exists()
+
+
+def test_single_image_failure_preserves_old_image_status_and_cleans_temp(
+    tmp_path, monkeypatch
+):
+    workdir = make_article_workdir(tmp_path)
+    target = workdir / "images" / "cover.jpg"
+    target.write_bytes(b"reviewed-image")
+    state_path = workdir / "image-status.json"
+    original_status = {"cover": "reviewed", "inline-1": "real"}
+    state_path.write_text(json.dumps(original_status), encoding="utf-8")
+    attempted_paths = []
+
+    def write_partial_then_fail(prompt, output, provider_settings, size):
+        attempted = Path(output)
+        attempted_paths.append(attempted)
+        attempted.write_bytes(b"partial-new-image")
+        raise RuntimeError("replacement failed")
+
+    monkeypatch.setattr(
+        render, "generate_image_with_provider", write_partial_then_fail
+    )
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        render.generate_single_image_in_workdir(
+            workdir, TOPIC, "cover", IMAGE_SETTINGS
+        )
+
+    assert target.read_bytes() == b"reviewed-image"
+    assert json.loads(state_path.read_text(encoding="utf-8")) == original_status
+    assert len(attempted_paths) == 1
+    assert not attempted_paths[0].exists()
+    assert list(target.parent.glob(".cover.jpg.*.tmp")) == []
+
+
 @pytest.mark.parametrize(
     "image_rels",
     [

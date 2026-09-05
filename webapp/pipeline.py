@@ -206,9 +206,8 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
             job_id,
             status="failed",
             phase=jobs.get(job_id).get("phase", "failed") if jobs.get(job_id) else "failed",
-            error=(
-                f"{type(exc).__name__}: "
-                f"{redact_sensitive(exc, secrets=api_keys)}"
+            error=redact_sensitive(
+                f"{type(exc).__name__}: {exc}", secrets=api_keys
             ),
         )
 

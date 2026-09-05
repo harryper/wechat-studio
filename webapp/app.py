@@ -279,8 +279,8 @@ def api_model_settings():
     submitted = data.get("settings") if isinstance(data, dict) else None
     try:
         validated = model_settings._validate_raw_settings(submitted)
-        saved = model_settings.save_settings(validated)
-        return _model_settings_json({"ok": True, "settings": saved})
+        model_settings.save_settings(validated)
+        return _model_settings_json({"ok": True, "settings": validated})
     except ProviderConfigError as exc:
         return _settings_error(exc, submitted)
     except Exception as exc:

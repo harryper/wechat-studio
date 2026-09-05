@@ -5,11 +5,14 @@ providers run and in what order, unknown ids fail loudly, and the first
 successful API response is written unchanged.
 """
 import base64
+from io import BytesIO
 import inspect
+import random
 import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TOOLKIT_DIR = SKILL_DIR / "toolkit"
@@ -239,6 +242,64 @@ def test_generate_image_with_provider_builds_only_selected_provider(tmp_path, mo
 
     assert out.read_bytes() == b"image-bytes"
     assert calls == [("prompt", "1536x1024")]
+
+
+def test_generate_image_with_provider_never_writes_above_five_megabytes(
+    tmp_path, monkeypatch
+):
+    """High-entropy provider output must be resized until it fits the hard limit."""
+    width = height = 4096
+    pixels = random.Random(20260905).randbytes(width * height * 3)
+    source = Image.frombytes("RGB", (width, height), pixels)
+    buffer = BytesIO()
+    source.save(buffer, format="JPEG", quality=100)
+    difficult_bytes = buffer.getvalue()
+    assert len(difficult_bytes) > image_gen.MAX_FILE_SIZE
+
+    class NoisyProvider:
+        def resolve_size(self, size):
+            return "4096x4096"
+
+        def generate(self, prompt, size):
+            return difficult_bytes
+
+    monkeypatch.setattr(
+        image_gen, "_build_provider_from_entry", lambda entry: NoisyProvider()
+    )
+    out = tmp_path / "strict.jpg"
+
+    image_gen.generate_image_with_provider("prompt", out, IMAGE_SETTINGS)
+
+    assert 0 < out.stat().st_size <= image_gen.MAX_FILE_SIZE
+    with Image.open(out) as generated:
+        generated.verify()
+
+
+def test_generate_image_with_provider_redacts_entire_error_context(
+    tmp_path, monkeypatch
+):
+    secret = "strict-image-collision"
+    settings = {**IMAGE_SETTINGS, "model": secret, "api_key": secret}
+
+    class FailingProvider:
+        def resolve_size(self, size):
+            return "1024x1024"
+
+        def generate(self, prompt, size):
+            raise RuntimeError(f"Authorization: Bearer {secret}")
+
+    monkeypatch.setattr(
+        image_gen, "_build_provider_from_entry", lambda entry: FailingProvider()
+    )
+    out = tmp_path / "strict.jpg"
+
+    with pytest.raises(RuntimeError) as excinfo:
+        image_gen.generate_image_with_provider("prompt", out, settings)
+
+    assert secret not in str(excinfo.value)
+    assert "cliproxy" in str(excinfo.value)
+    assert "***" in str(excinfo.value)
+    assert not out.exists()
 
 
 def test_generate_image_accepts_first_successful_provider_bytes(tmp_path, fake_chain):
