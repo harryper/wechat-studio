@@ -48,8 +48,6 @@ from toolkit.model_security import redact_sensitive
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 # --- Config ---
 
 CONFIG_PATHS = [
