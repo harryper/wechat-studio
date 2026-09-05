@@ -366,12 +366,11 @@ def test_generate_images_ground_each_prompt_in_matching_article_section(tmp_path
     for prompt, fact in zip(calls, expected_facts):
         assert fact in prompt
         assert "只使用内容依据中明确出现的实体、动作和环境" in prompt
-    assert "“一个含糊标题”" in calls[0]
+    assert "一个含糊标题" not in calls[0]
     assert all("一个含糊标题" not in prompt for prompt in calls[1:])
     expected_headings = ["起源", "发展演变", "影响与应用", "反直觉点"]
     for prompt, heading in zip(calls[1:], expected_headings):
         assert f"章节：{heading}" in prompt
-        assert f"“{heading}”" in prompt
 
 
 def test_generate_images_records_the_actual_prompts(tmp_path, monkeypatch):
@@ -415,17 +414,20 @@ def test_prompts_share_one_editorial_visual_system():
         assert "最多四个关键物件" in prompt
 
 
-def test_cover_uses_the_exact_short_topic_name_as_optional_visible_text():
+def test_cover_allows_contextual_text_without_using_the_title_as_a_label():
     topic = {
         **TOPIC,
         "title": "损失厌恶：人类决策中收益与损失的不对称评价",
     }
-    prompt = render._cover_prompt(topic)
+    prompt = render._cover_prompt(
+        topic,
+        "观众拿着无法退还的电影票，在继续观看和离场之间选择。",
+    )
     assert "单幅概念封面" in prompt
-    assert "可见文字" in prompt
-    assert "“损失厌恶”" in prompt
-    assert topic["title"] not in prompt
-    assert "不得添加其他文字、数字、Logo 或水印" in prompt
+    assert "允许出现少量清晰文字" in prompt
+    assert "必须与当前场景和内容依据直接相关" in prompt
+    assert "不得把主题名或章节名作为装饰性标签" in prompt
+    assert "不得出现任何可见文字" not in prompt
 
 
 def test_cover_uses_visual_hierarchy_without_percentage_layout_rules():
@@ -447,7 +449,6 @@ def test_inline_prompts_follow_actual_sections_instead_of_fixed_scene_roles():
     for prompt, (heading, fact) in zip(prompts, briefs):
         assert f"章节：{heading}" in prompt
         assert fact in prompt
-        assert f"“{heading}”" in prompt
     joined = "".join(prompts)
     assert "起源瞬间" not in joined
     assert "发展变化瞬间" not in joined
@@ -472,7 +473,7 @@ def test_article_briefs_keep_full_section_heading_for_visual_context():
     ]
 
 
-def test_long_section_heading_uses_short_topic_label_without_truncating_words():
+def test_long_section_heading_is_context_not_a_required_visible_label():
     topic = {
         **TOPIC,
         "title": "损失厌恶：人类决策中收益与损失的不对称评价",
@@ -482,8 +483,9 @@ def test_long_section_heading_uses_short_topic_label_without_truncating_words():
         [("参照点如何改变收益与损失的判断", "顾客在退货柜台比较损失与收益。")],
     )[0]
     assert "章节：参照点如何改变收益与损失的判断" in prompt
-    assert "可见文字：仅可使用原文短标签“损失厌恶”" in prompt
-    assert "“参照点如何改变收益与损失”" not in prompt
+    assert "允许出现少量清晰文字" in prompt
+    assert "不得把主题名或章节名作为装饰性标签" in prompt
+    assert "可见文字：仅可使用原文短标签" not in prompt
 
 
 def test_prompts_keep_topic_semantics_as_visual_context():
@@ -491,12 +493,12 @@ def test_prompts_keep_topic_semantics_as_visual_context():
         assert point in prompt
 
 
-def test_prompts_allow_exact_source_labels_but_reject_invented_text():
+def test_prompts_allow_only_context_relevant_visible_text():
     for prompt in _all_prompts(TOPIC):
-        assert "可见文字" in prompt
-        assert "文字必须逐字准确" in prompt
-        assert "不得添加其他文字、数字、Logo 或水印" in prompt
-        assert "zero typography" not in prompt
+        assert "允许出现少量清晰文字" in prompt
+        assert "必须与当前场景和内容依据直接相关" in prompt
+        assert "禁止无关文案、乱码、Logo 或水印" in prompt
+        assert "不得出现任何可见文字" not in prompt
 
 
 def test_behavioral_science_prompts_reject_generic_lab_decorations():

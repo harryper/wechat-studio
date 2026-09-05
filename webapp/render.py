@@ -81,7 +81,7 @@ _COMPOSITION_CONSTRAINT = (
 _COVER_COMPOSITION_CONSTRAINT = (
     "画面只由一个连续的具体场景构成，最多两个人、最多四个关键物件。"
     "使用清晰的封面视觉层级，主体、关键动作和对比关系一眼可辨，"
-    "构图完整饱满，短标签服从画面而不是占据画面。"
+    "构图完整饱满。"
 )
 
 _CONTENT_GROUNDING = (
@@ -104,19 +104,11 @@ def _section_heading(text: str) -> str:
     return value.strip()
 
 
-def _short_label(text: str) -> str:
-    """Return an exact, compact source phrase suitable for visible artwork text."""
-    value = _section_heading(text)
-    value = re.split(r"[：:，,。！？!?；;—]", value, maxsplit=1)[0].strip()
-    return value if len(value) <= 12 else ""
-
-
-def _text_constraint(*sources: str) -> str:
-    labels = (_short_label(source) for source in sources)
-    label = next((label for label in labels if label), "核心概念")
+def _text_constraint() -> str:
     return (
-        f"可见文字：仅可使用原文短标签“{label}”，文字必须逐字准确；"
-        "若无法准确呈现则省略。不得添加其他文字、数字、Logo 或水印。"
+        "允许出现少量清晰文字；文字必须与当前场景和内容依据直接相关，"
+        "用于呈现票据、选项、状态、因果节点或简短说明。"
+        "不得把主题名或章节名作为装饰性标签。禁止无关文案、乱码、Logo 或水印。"
     )
 
 
@@ -155,7 +147,7 @@ def _cover_prompt(topic: Dict[str, Any], brief: Optional[str] = None) -> str:
         "画面任务：选择一个正文中的具体瞬间，用人物正在进行的动作、真实环境和可见反差"
         "呈现核心判断；不要把多个观点拼成信息图。"
         f"{_CONTENT_GROUNDING}\n"
-        f"{_text_constraint(topic.get('title') or '', source)}\n"
+        f"{_text_constraint()}\n"
         f"{_domain_constraint(topic)}{_COVER_COMPOSITION_CONSTRAINT}"
     )
 
@@ -187,7 +179,7 @@ def _inline_prompts(
             "画面任务：先识别这段正文唯一最重要的判断，再选择能直接证明它的一个具体瞬间；"
             "明确画出人物或主体正在进行的动作、真实地点，以及支持判断的可见反差。"
             f"{_CONTENT_GROUNDING}\n"
-            f"{_text_constraint(heading, source, topic.get('title') or '')}\n"
+            f"{_text_constraint()}\n"
             f"{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
         )
     return prompts

@@ -1,6 +1,6 @@
 # 视觉AI模块
 
-> Web 工作台运行时采用适配 GPT Image 2 的“当代科普编辑插画”：从当前文章摘要，以及四个实际 H2 标题和对应正文提取五份内容依据，不依赖可能为空的主题 `key_points`，也不把四张内文图固定套成起源、发展、影响或反直觉场景。每张图先明确核心判断，再选择一个具体瞬间，用正文中的实体、动作、真实环境和可见反差表达。五张图统一低饱和海军蓝、赭石、暖象牙色、人物比例、轮廓、材质和光影。允许出现一个来自主题名或章节名的原文短标签，必须逐字准确；无法准确呈现时省略，禁止虚构文字、数字、Logo 或水印。每张图只画一个连续场景，最多两个人和四个关键物件。器材必须与主题领域直接相关，心理/认知/行为主题不得使用化学实验器材、分子公式或装饰性图表。下文通用模板若与这条运行时原则冲突，以本原则为准。
+> Web 工作台运行时采用适配 GPT Image 2 的“当代科普编辑插画”：从当前文章摘要，以及四个实际 H2 标题和对应正文提取五份内容依据，不依赖可能为空的主题 `key_points`，也不把四张内文图固定套成起源、发展、影响或反直觉场景。每张图先明确核心判断，再选择一个具体瞬间，用正文中的实体、动作、真实环境和可见反差表达。五张图统一低饱和海军蓝、赭石、暖象牙色、人物比例、轮廓、材质和光影。允许出现少量服务于知识解释、与当前场景及正文依据直接相关的文字，不把主题名或章节名作为装饰性标签，并禁止无关文案、乱码、Logo 或水印。每张图只画一个连续场景，最多两个人和四个关键物件。器材必须与主题领域直接相关，心理/认知/行为主题不得使用化学实验器材、分子公式或装饰性图表。下文通用模板若与这条运行时原则冲突，以本原则为准。
 
 ## 你的任务
 
@@ -46,9 +46,8 @@
 - **必须出现具体动作**，不能只是一群人“在那儿”。
 - **必须出现具体环境锚点**，例如闸机、导览牌、便利店冷柜、共享单车、取药窗口，而不是笼统“城市街头”。
 - **必须出现至少一个可见反差**，例如“普通队伍很长 vs 快速通道很空”“大空间很亮 vs 人流很稀”。
-- 对公众号配图，不让模型生成复杂文字排版，也不主动预留大面积标题区；一个原文短标签应自然融入场景。
-- **原文短标签约束**：可见文字只能从主题名或当前章节名提取一个短标签，必须逐字准确；无法准确呈现时宁可省略。禁止额外文案、虚构数字、Logo、水印和与正文无关的界面文字。
-- 只在 `Visible Text` 字段用引号标记允许绘制的短标签；叙事描述中的概念不要加引号，避免被误画成额外文字。
+- 对公众号配图，允许少量文字自然融入票据、选项、状态、因果节点或简短说明，不预留独立标题区。
+- **上下文约束**：文字必须与当前场景和正文依据直接相关，服务于知识解释；不得把主题名或章节名作为装饰性标签，禁止无关文案、乱码、Logo 或水印。
 
 ---
 
@@ -109,9 +108,8 @@
 ### 提示词撰写要点
 
 - 始终指定 `16:9 aspect ratio, horizontal composition`
-- 文字只使用主题名中的一个原文短标签，并要求逐字准确；无法准确呈现时省略
-- 禁止模型补充副标题、数字、Logo、水印或其他文案
-- 为短标签留自然位置，但不预留大面积标题区
+- 仅使用与当前场景和正文依据直接相关、服务于知识解释的少量文字
+- 不把主题名或章节名作为装饰性标签，禁止无关文案、乱码、Logo 或水印
 - 色调与客户 style.yaml 的 cover_style 对齐
 - 风格关键词要具体：不说"好看"，说"flat design, soft gradient, minimalist"
 
@@ -197,8 +195,8 @@ Zones:
   - Zone 3: {结论/要点}
 Labels: {文章中的真实数字、术语、指标名}
 Colors: {视觉锚点色板}
-Visible Text: {一个逐字准确的原文短标签；无法准确呈现时省略}
-Style: {视觉锚点风格关键词}, clean infographic, no extra copy, no logo, no watermark
+Visible Text: {与当前场景和正文依据直接相关的票据、选项、状态、因果节点或简短说明}
+Style: {视觉锚点风格关键词}, clean infographic, no irrelevant copy, no gibberish, no logo, no watermark
 Aspect: 16:9
 
 - 备选方案：{Unsplash/Pexels 搜索关键词}
@@ -215,8 +213,8 @@ Focal Point: {画面主体，必须是文章实体}
 Atmosphere: {光影、环境、时间}
 Mood: {情绪基调}
 Color Temperature: {warm / cool / neutral，与视觉锚点一致}
-Visible Text: {一个逐字准确的原文短标签；无法准确呈现时省略}
-Style: {视觉锚点风格关键词}, no extra copy, no logo, no watermark
+Visible Text: {与当前场景和正文依据直接相关的少量说明文字}
+Style: {视觉锚点风格关键词}, no irrelevant copy, no gibberish, no logo, no watermark
 Aspect: 16:9
 
 - 备选方案：{Unsplash/Pexels 搜索关键词}
@@ -236,8 +234,8 @@ Steps:
   3. {步骤名} — {简述}
 Connections: {箭头方向、决策分支}
 Colors: {视觉锚点色板}
-Visible Text: {一个逐字准确的原文短标签；无法准确呈现时省略}
-Style: {视觉锚点风格关键词}, clean diagram, no extra copy, no logo, no watermark
+Visible Text: {与当前步骤和正文依据直接相关的节点文字或简短说明}
+Style: {视觉锚点风格关键词}, clean diagram, no irrelevant copy, no gibberish, no logo, no watermark
 Aspect: 16:9
 
 - 备选方案：{Unsplash/Pexels 搜索关键词}
@@ -258,8 +256,8 @@ Right Side — {选项B名称}:
   - {要点2}
 Divider: {分隔线样式}
 Colors: {视觉锚点色板，左右各用一个主色}
-Visible Text: {一个逐字准确的原文短标签；无法准确呈现时省略}
-Style: {视觉锚点风格关键词}, split layout, no extra copy, no logo, no watermark
+Visible Text: {与两侧选项和正文依据直接相关的对比文字}
+Style: {视觉锚点风格关键词}, split layout, no irrelevant copy, no gibberish, no logo, no watermark
 Aspect: 16:9
 
 - 备选方案：{Unsplash/Pexels 搜索关键词}
@@ -279,8 +277,8 @@ Nodes:
   - {概念3} — {角色}
 Relationships: {节点间如何连接}
 Colors: {视觉锚点色板}
-Visible Text: {一个逐字准确的原文短标签；无法准确呈现时省略}
-Style: {视觉锚点风格关键词}, clean diagram, no extra copy, no logo, no watermark
+Visible Text: {与节点关系和正文依据直接相关的概念文字}
+Style: {视觉锚点风格关键词}, clean diagram, no irrelevant copy, no gibberish, no logo, no watermark
 Aspect: 16:9
 
 - 备选方案：{Unsplash/Pexels 搜索关键词}
@@ -300,8 +298,8 @@ Events:
   - {时间点3}: {里程碑}
 Markers: {视觉标记样式}
 Colors: {视觉锚点色板}
-Visible Text: {一个逐字准确的原文短标签；无法准确呈现时省略}
-Style: {视觉锚点风格关键词}, clean timeline, no extra copy, no logo, no watermark
+Visible Text: {与时间点、里程碑和正文依据直接相关的简短文字}
+Style: {视觉锚点风格关键词}, clean timeline, no irrelevant copy, no gibberish, no logo, no watermark
 Aspect: 16:9
 
 - 备选方案：{Unsplash/Pexels 搜索关键词}
@@ -345,7 +343,7 @@ Aspect: 16:9
 - 构图：16:9 横版，天平居中，右侧 1/3 留白放标题
 - 文字区域：右侧留出干净空间
 - AI 绘图提示词：
-  "A large balance scale, left side stacked with red-themed microchips, right side with blue-themed microchips, scale tilting left, dark blue background with flowing data streams, flat design, minimalist, tech aesthetic, 16:9 aspect ratio, exact short source label only, no extra copy, no logo, no watermark"
+  "A large balance scale, left side stacked with red-themed microchips, right side with blue-themed microchips, scale tilting left, dark blue background with flowing data streams, flat design, minimalist, tech aesthetic, 16:9 aspect ratio, only context-relevant explanatory text, no irrelevant copy, no gibberish, no logo, no watermark"
 - 适配工具建议：即梦（国内场景理解好）
 
 ## 内文配图
@@ -355,6 +353,6 @@ Aspect: 16:9
 - 画面描述：一个简洁的柱状图，展示中美大模型调用量的对比，中国柱子更高但带有问号标记
 - 尺寸：1:1 方形
 - AI 绘图提示词：
-  "Minimalist bar chart comparing two bars, left bar taller in red, right bar shorter in blue, question mark floating above the taller bar, clean white background, flat infographic style, 1:1 square, exact short source label only, no extra copy, no logo, no watermark"
+  "Minimalist bar chart comparing two bars, left bar taller in red, right bar shorter in blue, question mark floating above the taller bar, clean white background, flat infographic style, 1:1 square, only context-relevant explanatory text, no irrelevant copy, no gibberish, no logo, no watermark"
 - 备选方案：Unsplash 搜 "data comparison chart technology"
 ```
