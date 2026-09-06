@@ -9,7 +9,7 @@
 - 从 `references/knowledge-corpus.yaml` 的 30 个认知模型中选择选题；六个分类分别覆盖认识世界、做决策、理解概率、理解人性、长期发展和理解自己。每个主题按原理、证据、应用、边界四个角度组织，并匹配写作框架。
 - Web 写作支持 OpenAI-compatible 与 Anthropic Messages 两种协议，生成 2500–4000 字 Markdown 长文。
 - Web 工作台异步生成 1 张封面和 4 张内文图；提示词按实际章节正文生成，五图保持统一视觉风格，并允许少量与场景和正文依据直接相关的解释文字。它只调用当前选中的一个模型；单张失败会使任务失败，不会自动回退或生成占位图。
-- 提供 38 套主题、桌面/移动预览、Markdown 在线修改和 D1 内容历史。
+- 提供 38 套主题、桌面/移动预览、Markdown 在线修改和本地文章历史。
 - 选题中心支持搜索、状态/来源/分类筛选和自定义主题。
 - 支持重写文章、重生全部图片、重生单张图片及单独换主题。
 - 经用户确认后创建微信公众号草稿，不会自动群发。
@@ -62,8 +62,8 @@ OPENAI_API_KEY=sk-...
 APP_PASSWORD=a-strong-password
 APP_COOKIE_SECRET=a-long-random-secret
 
-# D1 数据 Worker；Compose 已提供当前部署地址
-D1_API_URL=https://wechat-studio-data.harryperlau.workers.dev
+# 本地数据目录；Compose 默认把仓库内的 webapp/_data 绑定到容器
+WS_DATA_DIR=
 ```
 
 `config.yaml` 支持 `${VAR}` 和 `${VAR:-default}`，不要在仓库文件中写入真实密钥。未设置 `APP_PASSWORD` 时，开发环境默认密码为 `asdf123456`；这只适合本机测试。
@@ -95,16 +95,23 @@ curl -fsS http://127.0.0.1:9997/api/health
 XIAOHU_FORMAT_DIR=/absolute/path/to/xiaohu-wechat-format
 ```
 
-生成请求会立即返回任务 ID，页面通过轮询显示写作、配图和排版进度。任务状态、文章正文和内容状态统一保存在 Cloudflare D1，所以刷新页面后可以继续查看；后台生成线程仍在本机执行，容器或服务重启后任务记录仍会保留，但未完成任务需要重新提交。
+生成请求会立即返回任务 ID，页面通过轮询显示写作、配图和排版进度。所有状态、文章正文和任务文件都保存在 `webapp/_data/` 下，跨页面刷新、Gunicorn worker 回收、容器重启和镜像重建都会保留。容器启动时遗留的 `queued` / `running` 任务会被标记为 `failed`，错误信息为“服务进程重启，任务已中断，请重新提交”。
 
-Compose 从 Git 忽略的 `.d1_api_token` 读取 Worker 服务令牌，并以 Docker secret 挂载。首次部署数据 Worker和迁移旧数据：
+## 数据存储
 
-```bash
-npx wrangler deploy
-python3 scripts/migrate_web_state_to_d1.py \
-  --api-url https://wechat-studio-data.harryperlau.workers.dev \
-  --token-file .d1_api_token
-```
+Web 工作台不再依赖任何外部数据库或 Cloudflare 资源。所有内容保存在 `webapp/_data/`：
+
+| 文件 / 目录 | 内容 |
+|---|---|
+| `webapp/_data/history.json` | 文章历史元数据、topic 快照和单调递增 ID |
+| `webapp/_data/topics.json` | 用户创建的自定义选题；内置选题每次从 `references/knowledge-corpus.yaml` 加载 |
+| `webapp/_data/jobs/<job-id>.json` | 异步任务状态（写作 / 配图 / 渲染） |
+| `webapp/_data/workdirs/<article-id>/` | `article.md`、`article.html` 和图片等产物 |
+| `webapp/_data/model-settings.json` | Web 工作台设置（首次启动从 `.env` 导入） |
+
+历史记录按文章 ID 单调递增；删除文章不会复用 ID。**只有用户主动删除文章时**才会级联清理该文章的任务文件、`workdirs/` 下的产物和 `history.json` 中的记录；自定义选题独立保留以便被其他文章继续引用。
+
+修改默认数据目录：设置 `WS_DATA_DIR`（容器内路径或主机绝对路径均可），所有读取和写入都会切换到该路径。Compose 默认通过 `./webapp/_data:/app/webapp/_data` 把主机目录挂载到容器，重建或重启容器时数据保留。
 
 ## OpenClaw 与 Web 的流程
 
@@ -167,7 +174,9 @@ docker compose up -d --build
 curl -fsS http://127.0.0.1:9997/api/health
 ```
 
-选题、正文、历史、任务和发布状态保存在 D1，重新构建镜像不会删除。`webapp/_data/workdirs/` 只保存排版 HTML 和图片等本地运行产物。
+历史、任务、自定义选题保存在本机 `webapp/_data/`。重新构建镜像不会删除数据；如果主机 `webapp/_data/` 目录存在，Compose 默认会把目录挂载到容器内的 `/app/webapp/_data`，新容器继续看到原数据。
+
+线上若曾部署 Cloudflare Worker 和 D1 数据库用于旧版 Web 工作台，请在确认新版一切正常后手动下线。
 
 ## 验证
 
@@ -192,14 +201,14 @@ python3 scripts/diagnose.py --json
 - **xiaohu 主题不可用**：确认兄弟项目存在，或通过 `XIAOHU_FORMAT_DIR` 指向其绝对路径。
 - **客户列表为空**：先创建 `clients/<客户名>/style.yaml`，然后确认 Compose 已挂载 `./clients:/app/clients:ro`。
 - **微信发布失败**：运行 `python3 scripts/diagnose.py --json`，检查 AppID、Secret、IP 白名单和封面文件。
-- **任务长时间停在运行中**：若服务期间发生过重启，请从内容库重新提交；任务错误和阶段可在 D1 中查询。
+- **任务长时间停在运行中**：若服务期间发生过重启，请从内容库重新提交；任务状态保存在 `webapp/_data/jobs/`。
 
 ## 目录
 
 ```text
 wechat-studio/
 ├── SKILL.md                 # OpenClaw 编排指令
-├── webapp/                  # Flask 工作台、异步任务和预览历史
+├── webapp/                  # Flask 工作台、异步任务和本地存储
 ├── toolkit/                 # 排版、生图、微信 API 和发布 CLI
 ├── scripts/                 # 写作、选题、检测和学习工具
 ├── references/              # 运行时知识库与按需加载的写作规范

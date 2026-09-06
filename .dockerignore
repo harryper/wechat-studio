@@ -1,7 +1,5 @@
 .git
 .env
-.d1_api_token
-.wrangler
 .superpowers
 __pycache__
 *.pyc

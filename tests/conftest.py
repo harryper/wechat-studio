@@ -1,123 +1,76 @@
-import uuid
+import os
+import shutil
+from pathlib import Path
 
 import pytest
 
 
-class MemoryD1Client:
-    def __init__(self):
-        self.topics = {
-            "kb-001": {
-                "id": "kb-001", "title": "幸存者偏差", "category": "cognitive_bias",
-                "source": "corpus", "status": "available", "client": "", "context": {},
-            }
-        }
-        self.articles = {}
-        self.jobs = {}
-        self.publications = []
-        self.next_history_id = 1
+@pytest.fixture
+def local_storage(monkeypatch, tmp_path):
+    """Point history/topics/jobs at a fresh tmp_path directory."""
+    data_dir = tmp_path / "_data"
+    data_dir.mkdir()
+    from webapp import history, jobs, topics, local_store
+    from webapp import app as app_module
 
-    def get(self, path, *, params=None, allow_404=False):
-        if path == "/health":
-            return {"ok": True, "topics": len(self.topics), "articles": len(self.articles), "jobs": len(self.jobs)}
-        if path == "/topics":
-            values = list(self.topics.values())
-            params = params or {}
-            for key in ("status", "source", "category"):
-                value = params.get(key)
-                if value and value != "all":
-                    values = [item for item in values if item.get(key) == value]
-            query = params.get("q") or ""
-            if query:
-                values = [item for item in values if query in item["title"] or query in item["id"]]
-            return {"ok": True, "topics": values, "total": len(values)}
-        if path.startswith("/topics/"):
-            value = self.topics.get(path.rsplit("/", 1)[-1])
-            return {"ok": True, "topic": value} if value else None
-        if path == "/articles":
-            values = [item for item in self.articles.values() if item.get("status") != "archived"]
-            return {"ok": True, "articles": list(reversed(values))}
-        if path.startswith("/articles/history/"):
-            value = self.articles.get(int(path.rsplit("/", 1)[-1]))
-            return {"ok": True, "article": value} if value else None
-        if path.startswith("/jobs/"):
-            value = self.jobs.get(path.rsplit("/", 1)[-1])
-            return {"ok": True, "job": value} if value else None
-        raise AssertionError(f"unexpected GET {path}")
-
-    def post(self, path, data):
-        if path == "/topics":
-            topic_id = data.get("id") or f"custom-{uuid.uuid4()}"
-            topic = {"id": topic_id, "status": "available", **data}
-            self.topics[topic_id] = topic
-            return {"ok": True, "topic": topic}
-        if path == "/topics/bulk":
-            for item in data["topics"]:
-                self.topics[item["id"]] = {
-                    **item, "source": "corpus", "status": "available", "client": "", "context": {},
-                }
-            return {"ok": True, "upserted": len(data["topics"])}
-        if path == "/articles":
-            history_id = data.get("local_history_id") or self.next_history_id
-            self.next_history_id = max(self.next_history_id, history_id + 1)
-            article = {
-                "id": history_id,
-                "article_id": str(uuid.uuid4()),
-                "created_at": data.get("created_at") or "2026-08-14T00:00:00Z",
-                "updated_at": "2026-08-14T00:00:00Z",
-                "workdir": "",
-                "status": "generating",
-                "assessment": {},
-                **data,
-            }
-            self.articles[history_id] = article
-            return {"ok": True, "article": article}
-        if path == "/jobs":
-            job_id = data.get("id") or uuid.uuid4().hex
-            job = {
-                "id": job_id, "kind": data["kind"], "status": "queued", "phase": "queued",
-                "progress": 0, "payload": data.get("payload") or {}, "result": None, "error": None,
-            }
-            self.jobs[job_id] = job
-            return {"ok": True, "job": job}
-        if path == "/publications":
-            record = {"id": len(self.publications) + 1, **data}
-            self.publications.append(record)
-            if data.get("status") == "pushed":
-                self.articles[data["history_id"]]["status"] = "pushed"
-            return {"ok": True, "publication": record}
-        raise AssertionError(f"unexpected POST {path}")
-
-    def patch(self, path, data):
-        if path.startswith("/topics/"):
-            topic = self.topics[path.rsplit("/", 1)[-1]]
-            topic.update(data)
-            return {"ok": True, "topic": topic}
-        if path.startswith("/articles/history/"):
-            article = self.articles[int(path.rsplit("/", 1)[-1])]
-            article.update(data)
-            article["updated_at"] = "2026-08-14T00:01:00Z"
-            return {"ok": True, "article": article}
-        if path.startswith("/jobs/"):
-            job = self.jobs[path.rsplit("/", 1)[-1]]
-            job.update(data)
-            return {"ok": True, "job": job}
-        raise AssertionError(f"unexpected PATCH {path}")
-
-    def delete(self, path):
-        article = self.articles[int(path.rsplit("/", 1)[-1])]
-        article["status"] = "archived"
-        return {"ok": True, "article": article}
+    history._init_store(data_dir / "history.json")
+    topics._init_store(
+        path=data_dir / "topics.json",
+        corpus_path=Path(__file__).resolve().parent.parent / "references" / "knowledge-corpus.yaml",
+    )
+    jobs._init_store(data_dir / "jobs")
+    monkeypatch.setenv("WS_DATA_DIR", str(data_dir))
+    yield data_dir
 
 
 @pytest.fixture
-def memory_d1(monkeypatch):
-    from webapp import history, jobs, publications, topics
-    from webapp import app as app_module
+def web_client(tmp_path, monkeypatch, local_storage):
+    import importlib
 
-    fake = MemoryD1Client()
-    monkeypatch.setattr(history, "client", fake)
-    monkeypatch.setattr(jobs, "client", fake)
-    monkeypatch.setattr(topics, "client", fake)
-    monkeypatch.setattr(publications, "client", fake)
-    monkeypatch.setattr(app_module, "d1", fake)
-    return fake
+    from webapp import history, jobs, model_settings, writing_prompt_settings
+
+    app_module = importlib.import_module("webapp.app")
+
+    executor = FakeExecutor()
+    monkeypatch.setattr(app_module, "JOB_EXECUTOR", executor)
+    monkeypatch.setattr(
+        app_module.model_settings,
+        "snapshot_settings",
+        lambda: copy.deepcopy(RESOLVED_SETTINGS_WITH_KEYS),
+    )
+    prompt_path = tmp_path / "writing-prompt.json"
+    monkeypatch.setattr(writing_prompt_settings, "WRITING_PROMPT_PATH", prompt_path)
+    client = app_module.app.test_client()
+    client.set_cookie(app_module.COOKIE_NAME, app_module.COOKIE_VALUE)
+    yield client, executor
+
+
+import copy
+
+
+RESOLVED_SETTINGS_WITH_KEYS = {
+    "schema_version": 1,
+    "writing": {
+        "provider_id": "custom-openai",
+        "adapter": "openai_compatible",
+        "model": "writer",
+        "base_url": "https://llm.example/v1",
+        "api_key": "write-secret",
+    },
+    "image": {
+        "provider_id": "cliproxy",
+        "adapter": "openai",
+        "model": "gpt-image-2",
+        "base_url": "http://127.0.0.1:8317/v1",
+        "api_key": "image-secret",
+    },
+}
+
+
+class FakeExecutor:
+    def __init__(self):
+        self.calls = []
+
+    def submit(self, fn, *args):
+        self.calls.append((fn, args))
+        return None

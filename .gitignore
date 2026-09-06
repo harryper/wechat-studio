@@ -1,6 +1,9 @@
 # Config with env vars (no secrets in git)
 # config.yaml is committed — sensitive values use ${VAR:-default} syntax
 .env
+# Legacy D1 token file from old deployments; only on hosts that previously
+# ran the Worker-backed version. Safe to delete locally — it is no longer
+# referenced by the Web app.
 .d1_api_token
 style.yaml
 history.yaml
@@ -17,11 +20,11 @@ output/
 !output/.gitkeep
 
 # Web UI runtime state
+# webapp/_data/ holds history.json, topics.json, jobs/, workdirs/, model-settings.json
+# The directory itself is git-ignored. Local Docker Compose mounts the host copy
+# into the container so recreated containers keep the data.
 webapp/_data/
 webapp/_data/model-settings.json
-
-# Wrangler local state and D1 emulation
-.wrangler/
 
 # Exemplar library (user-specific content)
 references/exemplars/*.md
@@ -32,6 +35,9 @@ clients/
 
 # macOS
 .DS_Store
+
+# Legacy Wrangler local state from old deployments
+.wrangler/
 
 # Python
 __pycache__/

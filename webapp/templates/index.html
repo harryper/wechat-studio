@@ -683,7 +683,11 @@
           <option value="inline-4">内文图 4</option>
         </select>
         <button id="btn-regen-image">重生选中图</button>
-        <button id="btn-apply-theme">应用排版风格</button>
+        <select id="theme-switcher" aria-label="切换排版风格">
+          {% for theme in themes %}
+          <option value="{{ theme.id }}" {% if theme.id == 'terracotta' %}selected{% endif %}>{{ theme.name }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="empty-state" id="empty-state">
         在左侧输入文章主题，点击「生成文章预览」开始<br>
@@ -799,6 +803,7 @@
     const promptState = $('prompt-state');
     const clientSelect = $('client');
     const themeInput = $('theme');
+    const themeSwitcher = $('theme-switcher');
     const btnPreview = $('btn-preview');
     const btnPublish = $('btn-publish');
     const btnEdit = $('btn-edit');
@@ -837,8 +842,7 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 
     const topicStateNames = {
-      available: '未创作', drafted: '已创作', pushed: '已推送',
-      published: '已发布', archived: '已归档', generating: '生成中',
+      available: '未创作', drafted: '已创作', generating: '生成中',
       draft: '草稿', review: '草稿', ready: '草稿', failed: '失败'
     };
 
@@ -1300,6 +1304,12 @@
       return option ? option.textContent : themeId;
     }
 
+    function syncThemeControls(themeId) {
+      themeInput.value = themeId;
+      themeSwitcher.value = themeId;
+      updateThemeDescription();
+    }
+
     function imageModeBadge(mode) {
       if (mode === 'real') {
         return '<span class="badge real">AI</span>';
@@ -1320,8 +1330,7 @@
       currentPreview = result;
       setPreview(result.html_url, undefined);
       setMeta(currentPreview);
-      themeInput.value = result.theme;
-      updateThemeDescription();
+      syncThemeControls(result.theme);
       setActions(true);
     }
 
@@ -1460,6 +1469,7 @@
           html_url: data.html_url,
           image_mode: e.image_mode,
         };
+        syncThemeControls(e.theme);
         const restore = prevId === e.id ? readIframeScroll() : 0;
         setPreview(data.html_url, restore);
         setMeta(currentPreview);
@@ -1610,19 +1620,34 @@
       }
     }
 
-    async function applyTheme() {
+    async function switchTheme() {
       if (!currentPreview) return;
+      const requestedTheme = themeSwitcher.value;
+      if (requestedTheme === currentPreview.theme) return;
+      if (!window.confirm('是否切换为「' + themeLabel(requestedTheme) + '」？')) {
+        themeSwitcher.value = currentPreview.theme;
+        return;
+      }
+      themeSwitcher.disabled = true;
       showStatus('info', '🎨 正在应用主题…');
-      const resp = await fetch('/api/history/' + currentPreview.history_id + '/theme', {
-        method: 'PUT', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({theme: themeInput.value}),
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) return showStatus('error', data.error || '主题更新失败');
-      currentPreview.theme = data.entry.theme;
-      setPreview(data.html_url, readIframeScroll());
-      setMeta(currentPreview);
-      showStatus('success', '排版风格已更新为 ' + themeLabel(currentPreview.theme));
+      try {
+        const resp = await fetch('/api/history/' + currentPreview.history_id + '/theme', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({theme: requestedTheme}),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || '主题更新失败');
+        currentPreview.theme = data.entry.theme;
+        syncThemeControls(data.entry.theme);
+        setPreview(data.html_url, readIframeScroll());
+        setMeta(currentPreview);
+        showStatus('success', '排版风格已更新为 ' + themeLabel(currentPreview.theme));
+      } catch (e) {
+        themeSwitcher.value = currentPreview.theme;
+        showStatus('error', e.message || e);
+      } finally {
+        themeSwitcher.disabled = false;
+      }
     }
 
     async function doPublish() {
@@ -1643,19 +1668,35 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ history_id: currentPreview.history_id }),
         });
-        const data = await resp.json();
-        if (data.ok) {
-          showStatus('success', '✅ 推送成功\n' + (data.stdout || '').trim());
-        } else {
-          let msg = '❌ 推送失败（returncode=' + data.returncode + '）';
-          if (data.stderr && data.stderr.trim()) {
-            msg += '\n' + data.stderr.trim();
-          }
-          if (data.stdout && data.stdout.trim()) {
-            msg += '\n--- stdout ---\n' + data.stdout.trim();
-          }
-          showStatus('error', msg);
+        let data = null;
+        try {
+          data = await resp.json();
+        } catch (parseErr) {
+          showStatus('error', '服务返回了无效响应（HTTP ' + resp.status + '）');
+          return;
         }
+        if (data && data.ok) {
+          showStatus('success', '✅ 推送成功\n' + (data.stdout || '').trim());
+          return;
+        }
+        let msg = '';
+        if (data && typeof data.error === 'string' && data.error.trim()) {
+          msg = '❌ 推送失败：' + data.error.trim();
+          if (typeof data.returncode === 'number' || typeof data.returncode === 'string') {
+            msg += '\n（returncode=' + data.returncode + '）';
+          }
+        } else if (typeof data.returncode === 'number' || typeof data.returncode === 'string') {
+          msg = '❌ 推送失败（returncode=' + data.returncode + '）';
+        } else {
+          msg = '❌ 推送失败：服务返回了无效响应';
+        }
+        if (data && data.stderr && data.stderr.trim()) {
+          msg += '\n' + data.stderr.trim();
+        }
+        if (data && data.stdout && data.stdout.trim()) {
+          msg += '\n--- stdout ---\n' + data.stdout.trim();
+        }
+        showStatus('error', msg);
       } catch (e) {
         showStatus('error', '请求失败：' + (e && e.message ? e.message : e));
       } finally {
@@ -1672,7 +1713,7 @@
     $('btn-regen-article').addEventListener('click', () => regenerate('article'));
     $('btn-regen-images').addEventListener('click', () => regenerate('images'));
     $('btn-regen-image').addEventListener('click', () => regenerate('image', $('image-role').value));
-    $('btn-apply-theme').addEventListener('click', applyTheme);
+    themeSwitcher.addEventListener('change', switchTheme);
     historyTrigger.addEventListener('click', openHistory);
     historyRefresh.addEventListener('click', refreshHistory);
     $('btn-close-history').addEventListener('click', closeHistory);

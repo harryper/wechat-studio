@@ -70,16 +70,18 @@ WORKDIR_ROOT = Path(__file__).resolve().parent / "_data" / "workdirs"
 _KNOWLEDGE_STYLE = (
     "当代科普编辑插画，横版16:9，2.5D扁平半写实。"
     "全篇统一视觉系统：低饱和海军蓝、赭石与暖象牙色，"
-    "自然人物比例，中等粗细轮廓，克制材质细节与柔和环境光。"
+    "如有人物则采用自然比例，中等粗细轮廓，克制材质细节与柔和环境光。"
 )
 
 _COMPOSITION_CONSTRAINT = (
-    "画面只由一个连续的具体场景构成，最多两个人、最多四个关键物件。"
-    "主体、关键动作和对比关系一眼可辨；背景简洁，同时保留正文提到的真实环境锚点。"
+    "画面只表达一个连续场景或一个清晰图解，不做多场景拼贴；"
+    "如有人物，最多两个人；最多四个关键物件或图形。"
+    "主体、关键动作或关系一眼可辨；背景简洁，并保留正文中的内容锚点。"
 )
 
 _COVER_COMPOSITION_CONSTRAINT = (
-    "画面只由一个连续的具体场景构成，最多两个人、最多四个关键物件。"
+    "画面只表达一个连续场景或一个清晰视觉关系，不做多场景拼贴；"
+    "如有人物，最多两个人；最多四个关键物件或图形。"
     "使用清晰的封面视觉层级，主体、关键动作和对比关系一眼可辨，"
     "构图完整饱满。"
 )
@@ -87,6 +89,19 @@ _COVER_COMPOSITION_CONSTRAINT = (
 _CONTENT_GROUNDING = (
     "只使用内容依据中明确出现的实体、动作和环境，至少呈现三个可从正文直接追溯的视觉锚点；"
     "不添加与正文无关的装饰性人物、物件、建筑或科研道具。"
+)
+
+_VISUAL_FORM_CONSTRAINT = (
+    "人物不是必需元素。根据内容选择最清楚的一种表达：真实场景、物件隐喻，"
+    "或图标、流程、关系或数据图解；只有人物行为本身是不可替代的内容证据时才使用人物，"
+    "不得为了表现抽象概念而默认添加人物或人物阅读文件。没有原文数据时不得虚构数字。"
+)
+
+_INLINE_VISUAL_DIRECTIONS = (
+    "视觉形式偏好：优先以物件、档案或环境证据为主体，人物仅在不可替代时出现。",
+    "视觉形式偏好：优先使用图标、流程、关系或数据图解，无需人物。",
+    "视觉形式偏好：优先使用真实应用场景，人物只在动作本身能解释论点时出现。",
+    "视觉形式偏好：优先使用概念隐喻或对比构图，无需人物；避免桌面阅读构图。",
 )
 
 _QUOTE_CHARS = "「」『』《》【】〈〉“”‘’\"'"
@@ -108,6 +123,10 @@ def _text_constraint() -> str:
     return (
         "允许出现少量清晰文字；文字必须与当前场景和内容依据直接相关，"
         "用于呈现票据、选项、状态、因果节点或简短说明。"
+        "若画面确有正在阅读的人物，人物视线必须朝向有字正面，"
+        "载体朝向与阅读动作符合真实空间关系，看不到的一面保持无字。"
+        "镜头角度自由，不得为了展示文字固定成人物肩后视角。"
+        "禁止镜像文字、透视方向错误的文字或悬浮说明文字。"
         "不得把主题名或章节名作为装饰性标签。禁止无关文案、乱码、Logo 或水印。"
     )
 
@@ -144,9 +163,10 @@ def _cover_prompt(topic: Dict[str, Any], brief: Optional[str] = None) -> str:
         f"{_KNOWLEDGE_STYLE}\n"
         f"画面类型：单幅概念封面。主题领域：{category}。\n"
         f"核心判断与文章依据：{source}\n"
-        "画面任务：选择一个正文中的具体瞬间，用人物正在进行的动作、真实环境和可见反差"
-        "呈现核心判断；不要把多个观点拼成信息图。"
+        "画面任务：选择最能概括正文的单一视觉表达，可使用人物场景、物件隐喻、"
+        "图标或数据关系；清楚呈现核心判断和可见反差。"
         f"{_CONTENT_GROUNDING}\n"
+        f"{_VISUAL_FORM_CONSTRAINT}\n"
         f"{_text_constraint()}\n"
         f"{_domain_constraint(topic)}{_COVER_COMPOSITION_CONSTRAINT}"
     )
@@ -171,14 +191,16 @@ def _inline_prompts(
         sections.append((heading, source))
 
     prompts = []
-    for heading, source in sections:
+    for index, (heading, source) in enumerate(sections):
         chapter = f"章节：{heading}。\n" if heading else ""
         prompts.append(
             f"{_KNOWLEDGE_STYLE}\n"
             f"{chapter}核心判断与文章依据：{source}\n"
-            "画面任务：先识别这段正文唯一最重要的判断，再选择能直接证明它的一个具体瞬间；"
-            "明确画出人物或主体正在进行的动作、真实地点，以及支持判断的可见反差。"
+            f"{_INLINE_VISUAL_DIRECTIONS[index]}\n"
+            "画面任务：先识别这段正文唯一最重要的判断，再选择最能解释它的视觉形式；"
+            "清楚呈现主体、关系或动作，以及支持判断的可见反差。"
             f"{_CONTENT_GROUNDING}\n"
+            f"{_VISUAL_FORM_CONSTRAINT}\n"
             f"{_text_constraint()}\n"
             f"{_domain_constraint(topic)}{_COMPOSITION_CONSTRAINT}"
         )
@@ -338,7 +360,7 @@ def _insert_images(md: str, cover_rel: str, inline_rels: List[str]) -> str:
         if line.strip().startswith("## ") and "摘要" not in line
     ]
     for pos, rel in zip(headings[:4], inline_rels):
-        inserts.append((pos, f"![配图]({rel})"))
+        inserts.append((pos + 1, f"![配图]({rel})"))
 
     for pos, text in sorted(inserts, key=lambda x: -x[0]):
         lines.insert(pos, text)

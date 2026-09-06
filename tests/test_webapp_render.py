@@ -519,6 +519,32 @@ def test_prompts_allow_only_context_relevant_visible_text():
         assert "不得出现任何可见文字" not in prompt
 
 
+def test_prompts_keep_visible_text_on_the_surface_facing_the_reader():
+    for prompt in _all_prompts(TOPIC):
+        assert "若画面确有正在阅读的人物" in prompt
+        assert "人物视线必须朝向有字正面" in prompt
+        assert "看不到的一面保持无字" in prompt
+        assert "镜头角度自由" in prompt
+        assert "禁止镜像文字、透视方向错误的文字或悬浮说明文字" in prompt
+        assert "采用阅读者肩后或侧后方视角" not in prompt
+
+
+def test_prompts_allow_non_human_visuals_without_inventing_data():
+    for prompt in _all_prompts(TOPIC):
+        assert "人物不是必需元素" in prompt
+        assert "图标、流程、关系或数据图解" in prompt
+        assert "没有原文数据时不得虚构数字" in prompt
+
+
+def test_inline_prompts_use_distinct_visual_form_preferences():
+    prompts = render._inline_prompts(TOPIC)
+
+    assert "物件、档案或环境证据" in prompts[0]
+    assert "图标、流程、关系或数据图解" in prompts[1]
+    assert "真实应用场景" in prompts[2]
+    assert "概念隐喻或对比构图" in prompts[3]
+
+
 def test_behavioral_science_prompts_reject_generic_lab_decorations():
     for prompt in _all_prompts(TOPIC):
         assert "不得使用烧瓶、试管、分子结构、化学公式、显微镜或装饰性柱状图" in prompt

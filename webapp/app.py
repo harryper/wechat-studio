@@ -5,7 +5,7 @@
 微信公众号工作台，提供：
   - APP_PASSWORD 鉴权（HMAC cookie，30 天）
   - 主题选择 → LLM 写文章 + 配图 → 渲染预览
-  - D1 内容历史、任务状态和发布状态
+  - 本地文章历史、任务状态
   - 推送按钮 → cli.py publish
 
 数据流：
@@ -17,6 +17,8 @@
 
 cli.py 通过 config.yaml 读取 WECHAT_APPID / WECHAT_SECRET（已由 ${VAR}
 占位符展开），所以这里不需要把密钥再传一次。
+
+数据全部保存在 webapp/_data/ 下：history.json、topics.json、jobs/<id>.json。
 """
 
 import base64
@@ -53,11 +55,9 @@ from . import (
     jobs,
     model_settings,
     pipeline,
-    publications,
     topics,
     writing_prompt_settings,
 )
-from .d1_client import D1Error, client as d1
 from .render import (
     _write_preview_html,
 )
@@ -235,6 +235,12 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("wechat-studio")
 
+# 启动时标记遗留任务为中断（必须在路由注册之前执行）。
+try:
+    jobs.mark_interrupted_jobs()
+except Exception as exc:
+    log.warning("启动时标记中断任务失败：%s", exc)
+
 
 def _set_private_no_store(response: Response) -> Response:
     response.headers["Cache-Control"] = "private, no-store"
@@ -395,16 +401,21 @@ def index():
 
 @app.route("/api/health")
 def health():
-    remote = d1.get("/health") or {}
+    try:
+        corpus_count = len(topics._load_corpus())
+    except Exception:
+        corpus_count = 0
+    history_count = len(history.list_entries(limit=10_000))
+    job_count = jobs.count()
     return jsonify(
         {
             "ok": True,
             "app": "wechat-studio",
             "version": VERSION,
-            "storage": "d1",
-            "corpus_size": remote.get("topics", 0),
-            "history_count": remote.get("articles", 0),
-            "job_count": remote.get("jobs", 0),
+            "storage": "local",
+            "corpus_size": corpus_count,
+            "history_count": history_count,
+            "job_count": job_count,
         }
     )
 
@@ -648,6 +659,7 @@ def api_create_job():
         "theme": theme,
         "client": client,
         "status": "generating",
+        "topic_snapshot": topic,
     })
     try:
         job = jobs.create("full", {
@@ -712,7 +724,7 @@ def api_history_article(entry_id: int):
     if request.method == "GET":
         markdown = entry.get("markdown")
         if not markdown:
-            return jsonify({"ok": False, "error": "D1 中没有正文内容"}), 410
+            return jsonify({"ok": False, "error": "本地正文不存在或已丢失"}), 410
         return jsonify({"ok": True, "markdown": markdown})
     md_path = Path(entry["workdir"]) / "article.md"
     if not md_path.exists():
@@ -731,7 +743,6 @@ def api_history_article(entry_id: int):
         title = pipeline.extract_title(markdown)
         updated = history.update(entry_id, {
             "title": title or entry.get("title"),
-            "markdown": markdown.rstrip() + "\n",
             "status": "draft",
         })
     except Exception as exc:
@@ -762,9 +773,13 @@ def api_history_regenerate(entry_id: int):
     entry = history.get(entry_id)
     if entry is None:
         return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
-    topic = topics.get_topic(entry.get("topic_id", ""))
-    if topic is None:
-        return jsonify({"ok": False, "error": "原知识库主题已不存在"}), 410
+    topic_snapshot = entry.get("topic_snapshot")
+    if not topic_snapshot:
+        topic = topics.get_topic(entry.get("topic_id", ""))
+        if topic is None:
+            return jsonify({"ok": False, "error": "原知识库主题已不存在"}), 410
+    else:
+        topic = topic_snapshot
     data = request.get_json(force=True, silent=True) or {}
     kind = (data.get("stage") or "").strip()
     if kind not in {"article", "images", "image"}:
@@ -848,25 +863,35 @@ def api_history_image(entry_id: int, name: str):
 
 @app.route("/api/history/<int:entry_id>", methods=["DELETE"])
 def api_history_delete(entry_id: int):
-    """Delete a history entry and its workdir.
+    """Delete a history entry, its jobs, and workdir.
 
-    The workdir is bind-mounted disk content — we own it and can free it.
-    If the directory is already gone (cleanup is idempotent), that's fine.
+    Idempotent: missing workdir or already-deleted entry is treated as
+    success. After the history record is removed, file cleanup failures
+    only produce a warning log — the entry is no longer user-visible.
     """
     import shutil
 
     entry = history.get(entry_id)
     if entry is None:
         return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
-    history.delete(entry_id)
+    if not history.delete(entry_id):
+        return jsonify({"ok": False, "error": f"history #{entry_id} 不存在"}), 404
+    deleted_jobs = jobs.delete_by_history_id(entry_id)
     workdir = entry.get("workdir")
     if workdir:
         try:
             shutil.rmtree(workdir, ignore_errors=True)
-        except OSError as e:
-            log.warning("failed to remove workdir %s: %s", workdir, e)
-    log.info("deleted history #%d (workdir=%s)", entry_id, workdir)
-    return jsonify({"ok": True, "deleted": entry_id})
+        except OSError as exc:
+            log.warning("failed to remove workdir %s: %s", workdir, exc)
+    log.info(
+        "deleted history #%d (workdir=%s, related_jobs=%d)",
+        entry_id, workdir, deleted_jobs,
+    )
+    return jsonify({
+        "ok": True,
+        "deleted": entry_id,
+        "deleted_jobs": deleted_jobs,
+    })
 
 
 # ── 推送 ─────────────────────────────────────────────────────────────
@@ -877,6 +902,8 @@ def api_publish():
     必须传 history_id 而不是 topic_id — publish 只能跑在某次 preview 产
     出的 workdir 上（那里有 article.md + 本地图片路径，cli.py publish
     会自动上传图片到微信）。
+
+    推送结果完全由本地 CLI 决定。不再记录 publication 或改变文章状态。
     """
     data = request.get_json(force=True, silent=True) or {}
     history_id = data.get("history_id")
@@ -908,16 +935,6 @@ def api_publish():
     )
 
     media_match = re.search(r"Draft created! media_id:\s*(\S+)", cli_result["stdout"])
-    publications.record(
-        history_id,
-        status="pushed" if cli_result["ok"] else "failed",
-        remote_id=media_match.group(1) if media_match else None,
-        response={
-            "returncode": cli_result["returncode"],
-            "stdout": cli_result["stdout"],
-            "stderr": cli_result["stderr"],
-        },
-    )
     return jsonify(
         {
             "ok": cli_result["ok"],
@@ -930,6 +947,7 @@ def api_publish():
                 "title": entry.get("title"),
             },
             "theme": theme,
+            "media_id": media_match.group(1) if media_match else None,
         }
     )
 
@@ -946,12 +964,6 @@ def not_found(e):
 def server_error(e):
     log.error("500: %s\n%s", e, traceback.format_exc())
     return jsonify({"error": "internal server error"}), 500
-
-
-@app.errorhandler(D1Error)
-def d1_error(e):
-    log.error("D1 data service error: %s", e)
-    return jsonify({"ok": False, "error": str(e), "phase": "storage"}), 502
 
 
 # ── 入口 ─────────────────────────────────────────────────────────────

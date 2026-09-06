@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 from toolkit.model_security import redact_sensitive
 
-from . import history, jobs, topics
+from . import history, jobs
 from .render import (
     _write_preview_html,
     ensure_default_image_references,
@@ -74,16 +74,10 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
                 "theme": theme,
                 "workdir": str(workdir),
                 "image_mode": image_mode,
-                "markdown": markdown,
                 "status": "draft",
             })
             if entry is None:
                 raise RuntimeError(f"history #{entry_id} 不存在")
-            topics.set_status(
-                topic["id"],
-                "drafted",
-                {"history_id": entry_id, "job_id": job_id},
-            )
         else:
             entry_id = int(payload["history_id"])
             entry = history.get(entry_id)
@@ -126,10 +120,9 @@ def run_job(job_id: str, settings_snapshot: dict) -> None:
             jobs.update(job_id, phase="render", progress=85)
             _write_preview_html(workdir, entry["theme"])
             markdown = (workdir / "article.md").read_text(encoding="utf-8")
-            changes["markdown"] = markdown
+            changes["status"] = "draft"
             if kind == "article":
                 changes["title"] = extract_title(markdown) or entry.get("title")
-            changes["status"] = "draft"
             entry = history.update(entry_id, changes)
             if entry is None:
                 raise RuntimeError(f"history #{entry_id} 不存在")

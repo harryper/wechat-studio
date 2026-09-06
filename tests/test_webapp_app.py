@@ -98,6 +98,7 @@ class IdCollectingParser(HTMLParser):
         super().__init__()
         self.ids = set()
         self.input_types = {}
+        self.element_tags = {}
         self.textarea_placeholders = {}
         self.textarea_values = {}
         self._textarea_id = None
@@ -107,6 +108,7 @@ class IdCollectingParser(HTMLParser):
         element_id = values.get("id")
         if element_id:
             self.ids.add(element_id)
+            self.element_tags[element_id] = tag
             if tag == "input":
                 self.input_types[element_id] = values.get("type", "text")
             elif tag == "textarea":
@@ -124,7 +126,7 @@ class IdCollectingParser(HTMLParser):
 
 
 @pytest.fixture
-def web_client(tmp_path, monkeypatch, memory_d1):
+def web_client(tmp_path, monkeypatch, local_storage):
     executor = FakeExecutor()
     monkeypatch.setattr(app_module, "JOB_EXECUTOR", executor)
     monkeypatch.setattr(
@@ -318,6 +320,25 @@ def test_index_localizes_internal_theme_names(web_client):
     assert '>科技·现代</option>' in rendered
     assert '>暖色·编辑</option>' in rendered
     assert '>professional-clean</option>' not in rendered
+
+
+def test_toolbar_theme_switcher_confirms_and_restores_current_theme(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+    switch_function = rendered[
+        rendered.index("async function switchTheme"):
+        rendered.index("async function doPublish")
+    ]
+
+    assert parser.element_tags["theme-switcher"] == "select"
+    assert "btn-apply-theme" not in parser.ids
+    assert "是否切换为「' + themeLabel(requestedTheme) + '」？" in switch_function
+    assert "themeSwitcher.value = currentPreview.theme;" in switch_function
+    assert "body: JSON.stringify({theme: requestedTheme})" in switch_function
+    assert "syncThemeControls(data.entry.theme);" in switch_function
 
 
 def test_index_model_settings_focus_trap_redirects_external_and_dialog_focus(web_client):
@@ -655,7 +676,9 @@ def test_article_prompt_preview_uses_unsaved_user_input(web_client):
     assert response.headers["Cache-Control"] == "private, no-store"
 
 
-def test_create_job_accepts_subject_and_persists_edited_prompt(web_client, memory_d1):
+def test_create_job_accepts_subject_and_persists_edited_prompt(web_client, local_storage):
+    from webapp import topics
+
     client, _ = web_client
     edited_prompt = "  你是一名资深编辑。只根据用户提供的资料写作。\n"
 
@@ -671,7 +694,7 @@ def test_create_job_accepts_subject_and_persists_edited_prompt(web_client, memor
 
     assert response.status_code == 202
     job = jobs.get(response.get_json()["job_id"])
-    topic = memory_d1.topics[job["payload"]["topic"]["id"]]
+    topic = topics.get_topic(job["payload"]["topic"]["id"])
     assert job["payload"]["prompt"] == edited_prompt
     assert topic["title"] == "AI 如何改变个人知识管理"
     assert topic["context"]["prompt"] == edited_prompt
@@ -793,9 +816,11 @@ def test_later_save_does_not_mutate_queued_snapshot(web_client, monkeypatch):
 
 def test_topic_center_lists_and_creates_custom_topic(web_client):
     client, _ = web_client
-    listed = client.get("/api/topics?status=available&q=幸存者")
+    listed = client.get("/api/topics?status=available&q=第一性原理")
     assert listed.status_code == 200
-    assert listed.get_json()["topics"][0]["id"] == "kb-001"
+    topics = listed.get_json()["topics"]
+    assert topics[0]["id"] == "kb-001"
+    assert topics[0]["status"] == "available"
 
     created = client.post("/api/topics", json={
         "title": "自定义产品主题",
@@ -806,6 +831,18 @@ def test_topic_center_lists_and_creates_custom_topic(web_client):
     payload = created.get_json()["topic"]
     assert payload["source"] == "custom"
     assert payload["status"] == "available"
+    # Re-listing with a draft history should flip the status to drafted.
+    from webapp import history
+    history.add({
+        "topic_id": payload["id"],
+        "title": payload["title"],
+        "theme": "terracotta",
+        "workdir": "",
+    })
+    re_listed = client.get("/api/topics?status=available&q=自定义产品主题").get_json()["topics"]
+    assert re_listed == []
+    drafted = client.get("/api/topics?status=drafted&q=自定义产品主题").get_json()["topics"]
+    assert drafted[0]["id"] == payload["id"]
 
 
 def test_article_edit_saves_and_rerenders(web_client, tmp_path, monkeypatch):
@@ -843,7 +880,7 @@ def test_removed_preflight_endpoint_returns_not_found(web_client, tmp_path):
 
 
 def test_publish_runs_without_preflight_gate(
-    web_client, tmp_path, monkeypatch, memory_d1
+    web_client, tmp_path, monkeypatch, local_storage
 ):
     client, _ = web_client
     workdir = tmp_path / "publish"
@@ -868,9 +905,14 @@ def test_publish_runs_without_preflight_gate(
     response = client.post("/api/publish", json={"history_id": entry_id})
 
     assert response.status_code == 200
-    assert response.get_json()["ok"] is True
-    assert "preflight" not in response.get_json()
-    assert memory_d1.publications[-1]["status"] == "pushed"
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["returncode"] == 0
+    assert payload["media_id"] == "draft-123"
+    assert "preflight" not in payload
+    # The local publication store no longer exists; the result comes straight
+    # from the CLI subprocess.
+    assert history.get(entry_id)["status"] == "draft"
 
 
 def test_regenerate_single_image_queues_job(web_client, tmp_path):

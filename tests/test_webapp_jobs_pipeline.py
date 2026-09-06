@@ -1,4 +1,6 @@
 import json
+import re
+import uuid
 from pathlib import Path
 
 from webapp import jobs, pipeline
@@ -35,10 +37,10 @@ EXPECTED_AUDIT = {
     },
 }
 
+_JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
-def install_full_job_fakes(monkeypatch, tmp_path, captured):
-    from webapp import history
 
+def install_full_job_fakes(monkeypatch, tmp_path, captured, history_module):
     workdir = tmp_path / "work"
     (workdir / "images").mkdir(parents=True)
     (workdir / "article.md").write_text(
@@ -50,7 +52,7 @@ def install_full_job_fakes(monkeypatch, tmp_path, captured):
         *[f"images/inline-{index}.jpg" for index in range(1, 5)],
     ]
     topic = {"id": "kb-001", "title": "原主题", "category": "psychology"}
-    entry_id = history.add({
+    entry_id = history_module.add({
         "topic_id": "kb-001", "title": "原主题", "category": "psychology",
         "theme": "terracotta", "client": "", "status": "generating",
     })
@@ -76,17 +78,87 @@ def install_full_job_fakes(monkeypatch, tmp_path, captured):
     return job["id"]
 
 
-def test_d1_backed_job_lifecycle(memory_d1):
+def test_job_lifecycle_persists_to_local_files(local_storage):
     job = jobs.create("full", {"topic": {"id": "kb-001"}})
-    assert jobs.get(job["id"])["status"] == "queued"
+    assert _JOB_ID_RE.match(job["id"])
+    assert job["status"] == "queued"
     jobs.update(job["id"], status="running", progress=42)
     loaded = jobs.get(job["id"])
     assert loaded["status"] == "running"
     assert loaded["progress"] == 42
+
+
+def test_jobs_visible_from_a_fresh_module_instance(local_storage):
+    job = jobs.create("full", {"topic": {"id": "kb-001"}})
+    jobs.update(job["id"], status="running", progress=10)
+
+    import importlib
+    importlib.reload(jobs)
+
+    loaded = jobs.get(job["id"])
+    assert loaded is not None
+    assert loaded["status"] == "running"
+
+
+def test_invalid_job_id_returns_none(local_storage):
     assert jobs.get("../escape") is None
+    assert jobs.get("not-a-real-id") is None
+    assert jobs.get("") is None
 
 
-def test_full_job_persists_completed_history(tmp_path, monkeypatch, memory_d1):
+def test_mark_interrupted_jobs_marks_stale_jobs(local_storage):
+    job = jobs.create("full", {"topic": {"id": "kb-001"}})
+    jobs.update(job["id"], status="running", progress=10)
+
+    count = jobs.mark_interrupted_jobs()
+
+    assert count >= 1
+    failed = jobs.get(job["id"])
+    assert failed["status"] == "failed"
+    assert failed["phase"] == "interrupted"
+    assert "服务进程重启" in failed["error"]
+
+
+def test_mark_interrupted_jobs_keeps_completed_jobs(local_storage):
+    job = jobs.create("full", {"topic": {"id": "kb-001"}})
+    jobs.update(job["id"], status="completed", progress=100)
+
+    jobs.mark_interrupted_jobs()
+
+    assert jobs.get(job["id"])["status"] == "completed"
+
+
+def test_delete_by_history_id_removes_matching_jobs(local_storage, tmp_path):
+    from webapp import history
+    workdir = tmp_path / "w"
+    workdir.mkdir()
+    entry_id = history.add({"topic_id": "kb-001", "title": "x",
+                             "theme": "terracotta", "workdir": str(workdir)})
+    j1 = jobs.create("article", {"history_id": entry_id, "topic": {"id": "kb-001"}})
+    j2 = jobs.create("images", {"history_id": entry_id, "topic": {"id": "kb-001"}})
+    j3 = jobs.create("article", {"history_id": 9999, "topic": {"id": "other"}})
+
+    deleted = jobs.delete_by_history_id(entry_id)
+
+    assert deleted == 2
+    assert jobs.get(j1["id"]) is None
+    assert jobs.get(j2["id"]) is None
+    assert jobs.get(j3["id"]) is not None
+
+
+def test_history_not_bounded_by_old_maximum(local_storage, tmp_path):
+    from webapp import history
+
+    for index in range(20):
+        workdir = tmp_path / f"w-{index}"
+        workdir.mkdir()
+        history.add({"topic_id": "kb-001", "title": f"文章 {index}",
+                     "theme": "terracotta", "workdir": str(workdir)})
+
+    assert len(history.list_entries(limit=100)) == 20
+
+
+def test_full_job_persists_completed_history(local_storage, tmp_path, monkeypatch):
     from webapp import history
 
     workdir = tmp_path / "work"
@@ -119,11 +191,10 @@ def test_full_job_persists_completed_history(tmp_path, monkeypatch, memory_d1):
     assert "assessment" not in finished["result"]
 
 
-def test_pipeline_uses_one_snapshot_for_writing_and_images(
-    tmp_path, monkeypatch, memory_d1
-):
+def test_pipeline_uses_one_snapshot_for_writing_and_images(local_storage, tmp_path, monkeypatch):
+    from webapp import history
     captured = {}
-    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured)
+    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured, history)
 
     pipeline.run_job(job_id, SETTINGS_WITH_KEYS)
 
@@ -132,7 +203,7 @@ def test_pipeline_uses_one_snapshot_for_writing_and_images(
     assert captured["prompt"] == "用户编辑后的 Prompt"
 
 
-def test_article_regeneration_reuses_saved_prompt(tmp_path, monkeypatch, memory_d1):
+def test_article_regeneration_reuses_saved_prompt(local_storage, tmp_path, monkeypatch):
     from webapp import history
 
     workdir = tmp_path / "work"
@@ -166,11 +237,11 @@ def test_article_regeneration_reuses_saved_prompt(tmp_path, monkeypatch, memory_
     assert captured["prompt"] == "历史任务保存的 Prompt"
 
 
-def test_pipeline_failure_persisted_to_d1_is_redacted(
-    tmp_path, monkeypatch, memory_d1
-):
+def test_pipeline_failure_marks_job_failed_and_redacts(local_storage, tmp_path, monkeypatch):
+    from webapp import history
+
     captured = {}
-    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured)
+    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured, history)
     monkeypatch.setattr(
         pipeline,
         "write_article_to_workdir",
@@ -192,11 +263,10 @@ def test_pipeline_failure_persisted_to_d1_is_redacted(
     )
 
 
-def test_pipeline_redacts_api_key_that_equals_exception_type_prefix(
-    tmp_path, monkeypatch, memory_d1
-):
+def test_pipeline_redacts_api_key_that_equals_exception_type_prefix(local_storage, tmp_path, monkeypatch):
+    from webapp import history
     captured = {}
-    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured)
+    job_id = install_full_job_fakes(monkeypatch, tmp_path, captured, history)
     settings = {
         **SETTINGS_WITH_KEYS,
         "writing": {

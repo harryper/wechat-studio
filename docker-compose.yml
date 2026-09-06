@@ -15,6 +15,8 @@ services:
       - ./references:/app/references
       - ./clients:/app/clients:ro
       - ./config.yaml:/app/config.yaml:ro
+      # Local history/topics/job storage. Keep on host so recreate preserves data.
+      - ./webapp/_data:/app/webapp/_data
       # xiaohu-wechat-format is a sibling skill in `skills/`, not part of
       # this repo. toolkit/xiaohu_formatter.py walks up 3 dirs from its
       # own location to find it; mount at /xiaohu-wechat-format so that
@@ -27,8 +29,8 @@ services:
     environment:
       # 容器访问宿主机上的 cliproxyapi，取值必须与 .env 不同
       - CLIPROXY_IMAGE_BASE_URL=${CLIPROXY_IMAGE_BASE_URL:-http://host.docker.internal:8317/v1}
-    secrets:
-      - d1_api_token
+      # 本地数据目录：默认在容器内 /app/webapp/_data；如需跨容器保留，可改为 ./webapp/_data 等绑定路径
+      - WS_DATA_DIR=${WS_DATA_DIR:-/app/webapp/_data}
     deploy:
       resources:
         limits:
@@ -51,7 +53,3 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
-
-secrets:
-  d1_api_token:
-    file: ./.d1_api_token
