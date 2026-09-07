@@ -99,12 +99,15 @@ class IdCollectingParser(HTMLParser):
         self.ids = set()
         self.input_types = {}
         self.element_tags = {}
+        self.links = []
         self.textarea_placeholders = {}
         self.textarea_values = {}
         self._textarea_id = None
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
+        if tag == "a":
+            self.links.append(values.get("href", ""))
         element_id = values.get("id")
         if element_id:
             self.ids.add(element_id)
@@ -269,6 +272,16 @@ def test_index_renders_lazy_history_drawer_contract(web_client):
     open_history = script.split("async function openHistory()", 1)[1]
     open_history = open_history.split("async function refreshHistory()", 1)[0]
     assert "await refreshHistory();" in open_history
+
+
+def test_index_does_not_expose_operational_health_endpoint(web_client):
+    client, _ = web_client
+
+    rendered = client.get("/").get_data(as_text=True)
+    parser = IdCollectingParser()
+    parser.feed(rendered)
+
+    assert "/api/health" not in parser.links
 
 
 def test_writing_prompt_api_saves_and_returns_default_template(web_client):

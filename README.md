@@ -1,16 +1,15 @@
 # WeChat Studio
 
-公众号 AI 内容工作台：从知识库选题、长文写作和配图，到主题预览、在线修改和微信草稿箱发布。
+公众号 AI 内容工作台：从主题构思、长文写作和配图，到排版预览、在线修改和微信草稿箱发布。
 
 当前版本：`1.5.0`
 
 ## 功能概览
 
-- 从 `references/knowledge-corpus.yaml` 的 30 个认知模型中选择选题；六个分类分别覆盖认识世界、做决策、理解概率、理解人性、长期发展和理解自己。每个主题按原理、证据、应用、边界四个角度组织，并匹配写作框架。
+- Web 工作台支持直接输入文章主题、关键要点、素材背景和自定义 Prompt；OpenClaw 可从 `references/knowledge-corpus.yaml` 的 30 个认知模型中选择主题。
 - Web 写作支持 OpenAI-compatible 与 Anthropic Messages 两种协议，生成 2500–4000 字 Markdown 长文。
 - Web 工作台异步生成 1 张封面和 4 张内文图；提示词按实际章节正文生成，五图保持统一视觉风格，并允许少量与场景和正文依据直接相关的解释文字。它只调用当前选中的一个模型；单张失败会使任务失败，不会自动回退或生成占位图。
 - 提供 38 套主题、桌面/移动预览、Markdown 在线修改和本地文章历史。
-- 选题中心支持搜索、状态/来源/分类筛选和自定义主题。
 - 支持重写文章、重生全部图片、重生单张图片及单独换主题。
 - 经用户确认后创建微信公众号草稿，不会自动群发。
 
@@ -89,6 +88,8 @@ docker compose up -d --build
 curl -fsS http://127.0.0.1:9997/api/health
 ```
 
+第二条命令是供 Docker 和运维使用的服务探活检查；成功时返回 JSON，不是用户页面。日常使用直接打开 Web 工作台即可。
+
 浏览器访问 `http://localhost:9997`。Compose 默认从 `../xiaohu-wechat-format` 挂载排版引擎；若它位于其他目录，可在 `.env` 中设置绝对路径：
 
 ```dotenv
@@ -99,7 +100,7 @@ XIAOHU_FORMAT_DIR=/absolute/path/to/xiaohu-wechat-format
 
 ## 数据存储
 
-Web 工作台不再依赖任何外部数据库或 Cloudflare 资源。所有内容保存在 `webapp/_data/`：
+Web 工作台的内容保存在 `webapp/_data/`：
 
 | 文件 / 目录 | 内容 |
 |---|---|
@@ -115,10 +116,10 @@ Web 工作台不再依赖任何外部数据库或 Cloudflare 资源。所有内�
 
 ## OpenClaw 与 Web 的流程
 
-两种入口共用文章、图片、排版和发布契约，但执行方式不同：OpenClaw 由 `SKILL.md` 编排工具调用，Web 由后台任务流水线执行。
+两种入口共用文章、图片、排版和发布能力，但起点不同：Web 直接接收用户输入的主题和素材，OpenClaw 可从知识库选题并由 `SKILL.md` 编排工具调用。
 
 ```text
-1. 选择知识库主题和写作框架
+1. 在 Web 输入主题和素材，或由 OpenClaw 选择知识库主题和写作框架
 2. 读取可选客户 Style/Playbook，生成 Markdown 长文
 3. 生成封面 + 4 张内文图
 4. 生成主题 HTML 并保存历史
@@ -174,9 +175,7 @@ docker compose up -d --build
 curl -fsS http://127.0.0.1:9997/api/health
 ```
 
-历史、任务、自定义选题保存在本机 `webapp/_data/`。重新构建镜像不会删除数据；如果主机 `webapp/_data/` 目录存在，Compose 默认会把目录挂载到容器内的 `/app/webapp/_data`，新容器继续看到原数据。
-
-线上若曾部署 Cloudflare Worker 和 D1 数据库用于旧版 Web 工作台，请在确认新版一切正常后手动下线。
+本地数据目录及其保留、删除规则见上方“数据存储”。其中的内容通过 Compose 挂载，在重新构建容器后继续保留。
 
 ## 验证
 
@@ -197,11 +196,10 @@ python3 scripts/diagnose.py --json
 ## 常见问题
 
 - **生成时报 `ANTHROPIC_BASE_URL 未设置`**：在 `.env` 配置兼容接口地址、令牌和模型，然后重建或重启容器。
-- **图片都是占位图**：检查至少一个生图 API Key；任务详情和 `image-status.json` 会记录每张图的结果。
 - **xiaohu 主题不可用**：确认兄弟项目存在，或通过 `XIAOHU_FORMAT_DIR` 指向其绝对路径。
 - **客户列表为空**：先创建 `clients/<客户名>/style.yaml`，然后确认 Compose 已挂载 `./clients:/app/clients:ro`。
 - **微信发布失败**：运行 `python3 scripts/diagnose.py --json`，检查 AppID、Secret、IP 白名单和封面文件。
-- **任务长时间停在运行中**：若服务期间发生过重启，请从内容库重新提交；任务状态保存在 `webapp/_data/jobs/`。
+- **任务长时间停在运行中**：若服务期间发生过重启，请从历史记录重新生成，或重新提交文章；任务状态保存在 `webapp/_data/jobs/`。
 
 ## 目录
 
